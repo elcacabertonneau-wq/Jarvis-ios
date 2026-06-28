@@ -1,0 +1,85 @@
+workflows:
+  ios-build:
+    name: JARVIS iOS Build
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+
+    environment:
+      xcode: latest
+      cocoapods: default
+      vars:
+        BUNDLE_ID: "com.ironman.jarvis"
+        XCODE_PROJECT: "Jarvis.xcodeproj"
+        XCODE_SCHEME: "Jarvis"
+
+    scripts:
+      - name: Set Xcode version
+        script: xcode-select -p
+
+      - name: List project info
+        script: xcodebuild -list -project "$XCODE_PROJECT"
+
+      - name: Build for simulator (no signing needed)
+        script: |
+          xcodebuild \
+            -project "$XCODE_PROJECT" \
+            -scheme "$XCODE_SCHEME" \
+            -destination "platform=iOS Simulator,name=iPhone 16 Pro" \
+            -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO \
+            clean build \
+            | xcpretty --color
+
+    artifacts:
+      - build/Build/Products/**/*.app
+
+    publishing:
+      email:
+        recipients:
+          - elcaca.bertonneau@gmail.com
+        notify:
+          success: true
+          failure: true
+
+  ios-adhoc:
+    name: JARVIS iOS Ad-Hoc (Device)
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+
+    environment:
+      xcode: latest
+      ios_signing:
+        distribution_type: ad_hoc
+        bundle_identifier: com.ironman.jarvis
+      vars:
+        BUNDLE_ID: "com.ironman.jarvis"
+        XCODE_PROJECT: "Jarvis.xcodeproj"
+        XCODE_SCHEME: "Jarvis"
+
+    scripts:
+      - name: Build IPA for device
+        script: |
+          xcodebuild \
+            -project "$XCODE_PROJECT" \
+            -scheme "$XCODE_SCHEME" \
+            -destination "generic/platform=iOS" \
+            -configuration Release \
+            -archivePath build/Jarvis.xcarchive \
+            archive
+
+          xcodebuild \
+            -exportArchive \
+            -archivePath build/Jarvis.xcarchive \
+            -exportPath build/ipa \
+            -exportOptionsPlist ExportOptions.plist
+
+    artifacts:
+      - build/ipa/*.ipa
+
+    publishing:
+      email:
+        recipients:
+          - elcaca.bertonneau@gmail.com
+        notify:
+          success: true
+          failure: true
