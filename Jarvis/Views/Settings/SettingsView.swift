@@ -431,7 +431,7 @@ struct SettingsToggle: View {
                 .foregroundColor(.white.opacity(0.8))
             Spacer()
             Toggle("", isOn: $isOn)
-                .toggleStyle(SwitchToggleStyle(tint: AppConstants.Colors.primaryCyan))
+                .tint(AppConstants.Colors.primaryCyan)
                 .labelsHidden()
         }
     }

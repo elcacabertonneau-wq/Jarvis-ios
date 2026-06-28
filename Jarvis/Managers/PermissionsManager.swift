@@ -33,14 +33,9 @@ final class PermissionsManager: ObservableObject {
 
     @discardableResult
     func requestMicrophone() async -> Bool {
-        return await withCheckedContinuation { continuation in
-            AVAudioSession.sharedInstance().requestRecordPermission { granted in
-                DispatchQueue.main.async {
-                    self.status.microphone = granted
-                }
-                continuation.resume(returning: granted)
-            }
-        }
+        let granted = await AVAudioApplication.requestRecordPermission()
+        await MainActor.run { status.microphone = granted }
+        return granted
     }
 
     @discardableResult
@@ -84,7 +79,7 @@ final class PermissionsManager: ObservableObject {
     }
 
     func checkAll() async {
-        let micStatus = AVAudioSession.sharedInstance().recordPermission == .granted
+        let micStatus = AVAudioApplication.recordPermission == .granted
         let speechStatus = SFSpeechRecognizer.authorizationStatus() == .authorized
         let camStatus = AVCaptureDevice.authorizationStatus(for: .video) == .authorized
         let locStatus = CLLocationManager().authorizationStatus == .authorizedWhenInUse ||

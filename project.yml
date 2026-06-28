@@ -2,7 +2,7 @@ name: Jarvis
 options:
   bundleIdPrefix: com.ironman
   deploymentTarget:
-    iOS: "16.0"
+    iOS: "17.0"
   developmentLanguage: fr
   xcodeVersion: "26.0"
 
