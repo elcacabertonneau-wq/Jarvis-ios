@@ -1,0 +1,53 @@
+name: Build JARVIS IPA
+
+on:
+  push:
+    branches: [ claude/jarvis-ios-app-ri05gq, main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate --spec project.yml
+
+      - name: Build (sans signature)
+        run: |
+          xcodebuild \
+            -project Jarvis.xcodeproj \
+            -target "Jarvis" \
+            -sdk iphoneos \
+            -configuration Release \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            build
+
+      - name: Créer IPA
+        run: |
+          APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData -name "Jarvis.app" -not -path "*simulator*" 2>/dev/null | head -1)
+          if [ -z "$APP_PATH" ]; then
+            APP_PATH=$(find . -name "Jarvis.app" -not -path "*simulator*" | head -1)
+          fi
+          echo "App trouvée : $APP_PATH"
+          mkdir -p build/Payload
+          cp -r "$APP_PATH" build/Payload/Jarvis.app
+          cd build && zip -r Jarvis.ipa Payload/
+          ls -lh Jarvis.ipa
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: JARVIS-IPA
+          path: build/Jarvis.ipa
+          retention-days: 7
