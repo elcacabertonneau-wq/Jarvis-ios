@@ -1,0 +1,7 @@
+customtkinter>=5.2.0
+requests>=2.31.0
+
+# Optionnel — voix (décommentez pour installer)
+# pyttsx3>=2.90
+# SpeechRecognition>=3.10.0
+# pyaudio>=0.2.13
