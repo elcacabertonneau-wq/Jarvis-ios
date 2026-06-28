@@ -22,7 +22,7 @@ workflows:
         script: |
           xcodebuild \
             -project Jarvis.xcodeproj \
-            -scheme "$XCODE_SCHEME" \
+            -target "Jarvis" \
             -sdk iphoneos \
             -configuration Release \
             CODE_SIGNING_ALLOWED=NO \

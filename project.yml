@@ -4,7 +4,7 @@ options:
   deploymentTarget:
     iOS: "16.0"
   developmentLanguage: fr
-  xcodeVersion: "15.0"
+  xcodeVersion: "26.0"
 
 settings:
   base:
