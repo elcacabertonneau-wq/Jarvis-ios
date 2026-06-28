@@ -43,7 +43,7 @@ struct ParticleSystemView: View {
                 initializeParticles(in: geometry.size)
                 startAnimation(in: geometry.size)
             }
-            .onChange(of: isActive) { _, newValue in
+            .onChange(of: isActive) { newValue in
                 if newValue {
                     startAnimation(in: geometry.size)
                 }

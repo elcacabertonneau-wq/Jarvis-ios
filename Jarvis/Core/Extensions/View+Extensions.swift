@@ -113,7 +113,7 @@ struct PulseModifier: ViewModifier {
                     opacity = 0.2
                 }
             }
-            .onChange(of: isActive) { _, newValue in
+            .onChange(of: isActive) { newValue in
                 if newValue {
                     withAnimation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true)) {
                         scale = 1.4

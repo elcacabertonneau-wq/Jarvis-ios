@@ -39,10 +39,10 @@ struct ChatView: View {
                         .animation(.spring(response: 0.3), value: conversationManager.currentConversation.messages.count)
                     }
                     .onAppear { scrollProxy = proxy }
-                    .onChange(of: conversationManager.currentConversation.messages.count) { _, _ in
+                    .onChange(of: conversationManager.currentConversation.messages.count) { _ in
                         scrollToBottom(proxy: proxy)
                     }
-                    .onChange(of: viewModel.scrollToBottom) { _, _ in
+                    .onChange(of: viewModel.scrollToBottom) { _ in
                         scrollToBottom(proxy: proxy)
                     }
                 }

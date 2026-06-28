@@ -65,7 +65,7 @@ struct JarvisSphereView: View {
             stateLabel
         }
         .onAppear { startAnimations() }
-        .onChange(of: jarvisManager.state) { _, _ in startAnimations() }
+        .onChange(of: jarvisManager.state) { _ in startAnimations() }
     }
 
     private var mainSphere: some View {
