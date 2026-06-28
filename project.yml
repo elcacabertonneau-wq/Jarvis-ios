@@ -1,0 +1,51 @@
+name: Jarvis
+options:
+  bundleIdPrefix: com.ironman
+  deploymentTarget:
+    iOS: "16.0"
+  developmentLanguage: fr
+  xcodeVersion: "15.0"
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    ENABLE_PREVIEWS: YES
+
+targets:
+  Jarvis:
+    type: application
+    platform: iOS
+    sources:
+      - path: Jarvis
+        excludes:
+          - "**/.DS_Store"
+    resources:
+      - Jarvis/Resources/Assets.xcassets
+      - Jarvis/Resources/Info.plist
+    info:
+      path: Jarvis/Resources/Info.plist
+      properties: {}
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ironman.jarvis
+        INFOPLIST_FILE: Jarvis/Resources/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        LD_RUNPATH_SEARCH_PATHS: ["$(inherited)", "@executable_path/Frameworks"]
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGN_STYLE: Automatic
+        SWIFT_EMIT_LOC_STRINGS: YES
+    dependencies:
+      - sdk: Speech.framework
+      - sdk: AVFoundation.framework
+      - sdk: Vision.framework
+      - sdk: CoreLocation.framework
+      - sdk: EventKit.framework
+      - sdk: UserNotifications.framework
+      - sdk: MediaPlayer.framework
+      - sdk: Network.framework
+      - sdk: CoreImage.framework
+      - sdk: StoreKit.framework
