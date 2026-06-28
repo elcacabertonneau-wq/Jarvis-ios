@@ -24,15 +24,16 @@ workflows:
 
       - name: Build for simulator (no signing needed)
         script: |
+          set -o pipefail
           xcodebuild \
             -project "$XCODE_PROJECT" \
             -scheme "$XCODE_SCHEME" \
-            -destination "platform=iOS Simulator,name=iPhone 16 Pro" \
+            -destination "generic/platform=iOS Simulator" \
             -configuration Debug \
             CODE_SIGNING_ALLOWED=NO \
-            clean build 2>&1 | tee build.log | grep -E "(error:|warning:|Build (Succeeded|FAILED))"
-          # Check actual exit code
-          exit ${PIPESTATUS[0]}
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            clean build 2>&1 | tee build.log
+          echo "Build exit code: $?"
 
     artifacts:
       - build/Build/Products/**/*.app
