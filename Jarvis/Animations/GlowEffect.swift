@@ -187,7 +187,7 @@ struct ArcReactorView: View {
                 .neonGlow(color: AppConstants.Colors.primaryCyan, radius: 10)
         }
         .onAppear { startAnimations() }
-        .onChange(of: isActive) { _ in startAnimations() }
+        .onChange(of: isActive) { _, _ in startAnimations() }
     }
 
     private func startAnimations() {

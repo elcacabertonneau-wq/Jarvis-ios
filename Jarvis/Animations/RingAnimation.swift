@@ -78,7 +78,7 @@ struct OrbitingRingsView: View {
             }
         }
         .onAppear { startAnimations() }
-        .onChange(of: isActive) { _ in startAnimations() }
+        .onChange(of: isActive) { _, _ in startAnimations() }
     }
 
     private func startAnimations() {

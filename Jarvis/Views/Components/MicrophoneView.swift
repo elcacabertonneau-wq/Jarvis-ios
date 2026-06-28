@@ -65,7 +65,7 @@ struct MicrophoneButtonView: View {
                 isPressed = pressing
             }
         }, perform: {})
-        .onChange(of: isListening) { newValue in
+        .onChange(of: isListening) { _, newValue in
             if newValue { startListeningAnimation() }
         }
     }

@@ -31,7 +31,10 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             DEVELOPMENT_TEAM="" \
             COMPILER_INDEX_STORE_ENABLE=NO \
-            build
+            SWIFT_COMPILATION_MODE=singlefile \
+            SWIFT_TREAT_WARNINGS_AS_ERRORS=NO \
+            GCC_TREAT_WARNINGS_AS_ERRORS=NO \
+            build 2>&1 | tee /tmp/build.log; status=${PIPESTATUS[0]}; grep -E "error:|warning:" /tmp/build.log | grep -v "note:" | head -30 || true; exit $status
 
       - name: Créer IPA
         run: |

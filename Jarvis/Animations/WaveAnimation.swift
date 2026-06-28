@@ -30,7 +30,7 @@ struct AudioWaveformView: View {
             barHeights = (0..<barCount).map { _ in CGFloat.random(in: 0.05...0.15) }
             startAnimation()
         }
-        .onChange(of: isActive) { newValue in
+        .onChange(of: isActive) { _, newValue in
             if newValue { startAnimation() }
         }
     }
@@ -119,7 +119,7 @@ struct SpeakingWaveView: View {
             }
         }
         .onAppear { startAnimation() }
-        .onChange(of: isSpeaking) { _ in startAnimation() }
+        .onChange(of: isSpeaking) { _, _ in startAnimation() }
     }
 
     private func startAnimation() {
@@ -155,7 +155,7 @@ struct PulsatingCircleView: View {
                     .scaleEffect(scales[i])
             }
         }
-        .onChange(of: isActive) { newValue in
+        .onChange(of: isActive) { _, newValue in
             if newValue { startPulsing() }
         }
         .onAppear { if isActive { startPulsing() } }
