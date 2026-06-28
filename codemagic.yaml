@@ -9,19 +9,34 @@ workflows:
       vars:
         XCODE_PROJECT: "Jarvis.xcodeproj"
         XCODE_SCHEME: "Jarvis"
-        BUILD_DIR: "build/Release-iphoneos"
 
     scripts:
-      - name: Info environnement
+      - name: Diagnostic complet
         script: |
+          echo "=== Xcode version ==="
           xcodebuild -version
-          pwd && ls -la
 
-      - name: Build pour device (sans signature)
+          echo "=== Répertoire courant ==="
+          pwd
+          ls -la
+
+          echo "=== Contenu xcodeproj ==="
+          ls -la "$XCODE_PROJECT/"
+
+          echo "=== Schemes disponibles ==="
+          ls -la "$XCODE_PROJECT/xcshareddata/xcschemes/" || echo "Pas de schemes partagés"
+
+          echo "=== SDKs disponibles ==="
+          xcodebuild -showsdks
+
+          echo "=== Liste du projet ==="
+          xcodebuild -list -project "$XCODE_PROJECT"
+
+      - name: Build (target direct, sans scheme)
         script: |
           xcodebuild \
             -project "$XCODE_PROJECT" \
-            -scheme "$XCODE_SCHEME" \
+            -target "Jarvis" \
             -sdk iphoneos \
             -configuration Release \
             CODE_SIGNING_ALLOWED=NO \
@@ -29,13 +44,14 @@ workflows:
             CODE_SIGN_IDENTITY="" \
             DEVELOPMENT_TEAM="" \
             COMPILER_INDEX_STORE_ENABLE=NO \
-            CONFIGURATION_BUILD_DIR="$BUILD_DIR" \
-            clean build
+            build
 
       - name: Créer IPA
         script: |
+          APP_PATH=$(find . -name "Jarvis.app" -not -path "*/simulator/*" | head -1)
+          echo "App trouvée : $APP_PATH"
           mkdir -p build/Payload
-          cp -r "$BUILD_DIR/Jarvis.app" build/Payload/Jarvis.app
+          cp -r "$APP_PATH" build/Payload/Jarvis.app
           cd build && zip -r Jarvis.ipa Payload/
           echo "IPA créé : $(du -sh Jarvis.ipa)"
 
