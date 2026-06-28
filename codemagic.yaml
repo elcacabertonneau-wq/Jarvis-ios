@@ -13,11 +13,14 @@ workflows:
         XCODE_SCHEME: "Jarvis"
 
     scripts:
-      - name: Set Xcode version
-        script: xcode-select -p
+      - name: Environment info
+        script: |
+          echo "=== Xcode ===" && xcode-select -p && xcodebuild -version
+          echo "=== Working dir ===" && pwd && ls -la
+          echo "=== Xcodeproj ===" && ls -la "$XCODE_PROJECT"
 
       - name: List project info
-        script: xcodebuild -list -project "$XCODE_PROJECT"
+        script: xcodebuild -list -project "$XCODE_PROJECT" || true
 
       - name: Build for simulator (no signing needed)
         script: |
@@ -27,8 +30,9 @@ workflows:
             -destination "platform=iOS Simulator,name=iPhone 16 Pro" \
             -configuration Debug \
             CODE_SIGNING_ALLOWED=NO \
-            clean build \
-            | xcpretty --color
+            clean build 2>&1 | tee build.log | grep -E "(error:|warning:|Build (Succeeded|FAILED))"
+          # Check actual exit code
+          exit ${PIPESTATUS[0]}
 
     artifacts:
       - build/Build/Products/**/*.app
