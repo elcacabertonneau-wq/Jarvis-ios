@@ -17,9 +17,23 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo  Installation des dependances...
-pip install customtkinter requests --quiet
+echo  Installation des dependances principales...
+pip install customtkinter requests Pillow pyttsx3 SpeechRecognition sounddevice numpy pygame opencv-python --quiet
 
+echo  Installation de PyAudio (microphone)...
+pip install pyaudio --quiet 2>nul
+if errorlevel 1 (
+    echo  [INFO] PyAudio n'a pas pu s'installer directement.
+    echo  Tentative via pipwin...
+    pip install pipwin --quiet
+    pipwin install pyaudio --quiet 2>nul
+    if errorlevel 1 (
+        echo  [AVERTISSEMENT] PyAudio non installe - la reconnaissance vocale sera desactivee.
+        echo  Pour l'activer manuellement : pip install pyaudio
+    )
+)
+
+echo.
 echo  Lancement de JARVIS...
 echo.
 python jarvis.py

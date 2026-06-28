@@ -1,7 +1,14 @@
 customtkinter>=5.2.0
 requests>=2.31.0
+Pillow>=10.0.0
+pyttsx3>=2.90
+SpeechRecognition>=3.10.0
+sounddevice>=0.4.6
+numpy>=1.24.0
+pygame>=2.5.0
+opencv-python>=4.8.0
 
-# Optionnel — voix (décommentez pour installer)
-# pyttsx3>=2.90
-# SpeechRecognition>=3.10.0
-# pyaudio>=0.2.13
+# pyaudio is required by SpeechRecognition for microphone input
+# Install separately if the line below fails:
+#   pip install pipwin && pipwin install pyaudio
+pyaudio>=0.2.13
