@@ -1,85 +1,46 @@
 workflows:
-  ios-build:
-    name: JARVIS iOS Build
+  ios-ipa-unsigned:
+    name: JARVIS IPA (non-signé pour Sideloadly)
     max_build_duration: 60
     instance_type: mac_mini_m2
 
     environment:
       xcode: latest
-      cocoapods: default
       vars:
-        BUNDLE_ID: "com.ironman.jarvis"
         XCODE_PROJECT: "Jarvis.xcodeproj"
         XCODE_SCHEME: "Jarvis"
+        BUILD_DIR: "build/Release-iphoneos"
 
     scripts:
-      - name: Environment info
+      - name: Info environnement
         script: |
-          echo "=== Xcode ===" && xcode-select -p && xcodebuild -version
-          echo "=== Working dir ===" && pwd && ls -la
-          echo "=== Xcodeproj ===" && ls -la "$XCODE_PROJECT"
+          xcodebuild -version
+          pwd && ls -la
 
-      - name: List project info
-        script: xcodebuild -list -project "$XCODE_PROJECT" || true
-
-      - name: Build for simulator (no signing needed)
-        script: |
-          set -o pipefail
-          xcodebuild \
-            -project "$XCODE_PROJECT" \
-            -scheme "$XCODE_SCHEME" \
-            -destination "generic/platform=iOS Simulator" \
-            -configuration Debug \
-            CODE_SIGNING_ALLOWED=NO \
-            COMPILER_INDEX_STORE_ENABLE=NO \
-            clean build 2>&1 | tee build.log
-          echo "Build exit code: $?"
-
-    artifacts:
-      - build/Build/Products/**/*.app
-
-    publishing:
-      email:
-        recipients:
-          - elcaca.bertonneau@gmail.com
-        notify:
-          success: true
-          failure: true
-
-  ios-adhoc:
-    name: JARVIS iOS Ad-Hoc (Device)
-    max_build_duration: 60
-    instance_type: mac_mini_m2
-
-    environment:
-      xcode: latest
-      ios_signing:
-        distribution_type: ad_hoc
-        bundle_identifier: com.ironman.jarvis
-      vars:
-        BUNDLE_ID: "com.ironman.jarvis"
-        XCODE_PROJECT: "Jarvis.xcodeproj"
-        XCODE_SCHEME: "Jarvis"
-
-    scripts:
-      - name: Build IPA for device
+      - name: Build pour device (sans signature)
         script: |
           xcodebuild \
             -project "$XCODE_PROJECT" \
             -scheme "$XCODE_SCHEME" \
             -destination "generic/platform=iOS" \
             -configuration Release \
-            -archivePath build/Jarvis.xcarchive \
-            archive
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            CONFIGURATION_BUILD_DIR="$BUILD_DIR" \
+            clean build
 
-          xcodebuild \
-            -exportArchive \
-            -archivePath build/Jarvis.xcarchive \
-            -exportPath build/ipa \
-            -exportOptionsPlist ExportOptions.plist
+      - name: Créer IPA
+        script: |
+          mkdir -p build/Payload
+          cp -r "$BUILD_DIR/Jarvis.app" build/Payload/Jarvis.app
+          cd build && zip -r Jarvis.ipa Payload/
+          echo "IPA créé : $(du -sh Jarvis.ipa)"
 
     artifacts:
-      - build/ipa/*.ipa
+      - build/Jarvis.ipa
 
     publishing:
       email:
