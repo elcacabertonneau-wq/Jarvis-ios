@@ -5,7 +5,7 @@ workflows:
     instance_type: mac_mini_m2
 
     environment:
-      xcode: latest
+      xcode: 16.2
       vars:
         XCODE_SCHEME: "Jarvis"
 
