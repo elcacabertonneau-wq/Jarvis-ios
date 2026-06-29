@@ -431,11 +431,11 @@ class JarvisApp(ctk.CTk):
             state="disabled",
         )
         self.chat_box.grid(row=1, column=0, sticky="nsew")
-        self.chat_box.tag_config("you",     foreground=CYAN,  font=("Courier New", 11, "bold"))
-        self.chat_box.tag_config("jarvis",  foreground=GREEN, font=("Courier New", 11, "bold"))
+        self.chat_box.tag_config("you",     foreground=CYAN)
+        self.chat_box.tag_config("jarvis",  foreground=GREEN)
         self.chat_box.tag_config("msg_you", foreground=WHITE)
         self.chat_box.tag_config("msg_ai",  foreground=DIM)
-        self.chat_box.tag_config("system",  foreground=ORANGE, font=("Courier New", 11, "italic"))
+        self.chat_box.tag_config("system",  foreground=ORANGE)
         self.chat_box.tag_config("sep",     foreground=CYAN_DD)
 
         self._sys_msg("Systèmes en ligne. Bonjour, Monsieur. Comment puis-je vous assister ?")
