@@ -189,9 +189,9 @@ async function searchVideos(query) {
 
 /**
  * Cherche puis lance la lecture du premier résultat.
- * (Utilisé par l'outil Claude jouer_musique.)
+ * (Utilisé par l'outil jouer_musique.)
  * @param {string} query Ex : "du Nekfeu"
- * @returns {Promise<string>} message de confirmation pour Claude
+ * @returns {Promise<string>} message de confirmation pour le modèle
  */
 export async function playSearch(query) {
   const results = await searchVideos(query);
@@ -243,9 +243,9 @@ export function stopMusic() {
 }
 
 /**
- * Contrôle de la lecture (outil Claude controler_lecture).
+ * Contrôle de la lecture (outil controler_lecture).
  * @param {"pause"|"reprendre"|"stop"|"suivant"} action
- * @returns {string} message de confirmation pour Claude
+ * @returns {string} message de confirmation pour le modèle
  */
 export function controlPlayback(action) {
   if (!currentTitle && action !== "stop") {
@@ -269,7 +269,7 @@ export function controlPlayback(action) {
 }
 
 /**
- * Titre en cours (outil Claude info_lecture).
+ * Titre en cours (outil info_lecture).
  * @returns {string|null} null si rien ne joue
  */
 export function getNowPlaying() {

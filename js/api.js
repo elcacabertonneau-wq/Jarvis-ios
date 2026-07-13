@@ -1,26 +1,29 @@
 // ============================================================
-// api.js — Appels directs Claude (Anthropic) + Groq Whisper
+// api.js — Appels directs à l'API Groq (transcription + chat)
 //
-// Tout se fait depuis le navigateur, sans backend :
-//  - Anthropic exige le header anthropic-dangerous-direct-browser-access: true
-//    (sinon la requête est bloquée par le CORS).
-//  - Groq Whisper reçoit l'audio en multipart/form-data.
+// Tout se fait depuis le navigateur, sans backend, avec UNE SEULE
+// clé API : Groq sert à la fois pour :
+//  - Whisper (audio → texte)
+//  - le LLM (chat + outils + vision), via l'endpoint compatible
+//    OpenAI de Groq (/openai/v1/chat/completions)
 //
 // Architecture des outils :
-//  - TOOLS est la liste déclarative envoyée à Claude (facile à étendre).
+//  - TOOLS est la liste déclarative (nom, description, input_schema),
+//    convertie automatiquement au format OpenAI à l'envoi.
 //  - toolHandlers est le registre d'exécution : nom d'outil → fonction.
-//    La boucle de tool_use est générique — pour ajouter un outil
-//    (mails, musique...), déclarer son schéma dans TOOLS et enregistrer
-//    son handler via registerTool(). Rien d'autre à toucher.
+//    La boucle de tool_calls est générique — pour ajouter un outil
+//    (mails...), déclarer son schéma dans TOOLS et enregistrer son
+//    handler via registerTool(). Rien d'autre à toucher.
 // ============================================================
 
-import { getAnthropicKey, getGroqKey } from "./config.js";
+import { getGroqKey } from "./config.js";
 import { captureFrame } from "./vision.js";
 import { playSearch, controlPlayback, getNowPlaying } from "./music.js";
 
-const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
-const GROQ_URL = "https://api.groq.com/openai/v1/audio/transcriptions";
-const CLAUDE_MODEL = "claude-sonnet-4-6";
+const CHAT_URL = "https://api.groq.com/openai/v1/chat/completions";
+const GROQ_STT_URL = "https://api.groq.com/openai/v1/audio/transcriptions";
+// Llama 4 Scout : supporte le tool use ET la vision (images) sur Groq.
+const CHAT_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct";
 const API_TIMEOUT_MS = 45000;
 
 // Prompt système : JARVIS, réponses très courtes (c'est de la voix)
@@ -42,7 +45,7 @@ export class ApiError extends Error {
   /**
    * @param {string} message
    * @param {number} status Code HTTP (0 = réseau/timeout)
-   * @param {"anthropic"|"groq"} provider
+   * @param {"groq"|"youtube"} provider
    */
   constructor(message, status, provider) {
     super(message);
@@ -88,7 +91,7 @@ export async function transcribe(audioBlob, extension) {
   form.append("response_format", "json");
 
   const response = await fetchWithTimeout(
-    GROQ_URL,
+    GROQ_STT_URL,
     {
       method: "POST",
       headers: { Authorization: "Bearer " + getGroqKey() },
@@ -108,6 +111,8 @@ export async function transcribe(audioBlob, extension) {
 
 // ------------------------------------------------------------
 // Déclaration des outils (constante exportée, facile à étendre)
+// Format interne : {name, description, input_schema} — converti au
+// format OpenAI ({type:"function", function:{...}}) à l'envoi.
 // ------------------------------------------------------------
 
 export const TOOLS = [
@@ -173,10 +178,26 @@ export const TOOLS = [
   // 2. Enregistrer le handler avec registerTool("nom", fn) ci-dessous.
 ];
 
+/** Conversion vers le format d'outils OpenAI attendu par Groq. */
+function toolsForGroq() {
+  return TOOLS.map((tool) => ({
+    type: "function",
+    function: {
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.input_schema,
+    },
+  }));
+}
+
 // ------------------------------------------------------------
 // Registre des handlers d'outils
-// Chaque handler reçoit l'input de l'outil et retourne le contenu
-// du tool_result : une chaîne, OU un tableau de blocs (texte/image).
+// Chaque handler retourne :
+//  - une chaîne (résultat texte), OU
+//  - un objet { text, imageJpegBase64 } quand le résultat inclut
+//    une image (le format OpenAI n'accepte que du texte dans les
+//    messages "tool" : l'image est alors renvoyée au modèle dans
+//    un message "user" séparé — géré par la boucle générique).
 // ------------------------------------------------------------
 
 const toolHandlers = new Map();
@@ -186,23 +207,13 @@ export function registerTool(name, handler) {
   toolHandlers.set(name, handler);
 }
 
-// --- Outil vision : capture une frame et la renvoie à Claude en image ---
+// --- Outil vision : capture une frame et la renvoie au modèle ---
 registerTool("regarder_camera", async () => {
   const base64Jpeg = captureFrame(); // lève si la caméra n'est pas prête
-  return [
-    {
-      type: "image",
-      source: {
-        type: "base64",
-        media_type: "image/jpeg",
-        data: base64Jpeg,
-      },
-    },
-    {
-      type: "text",
-      text: "Image capturée par la caméra frontale à l'instant. Décris ce que tu vois de façon concise.",
-    },
-  ];
+  return {
+    text: "Image capturée par la caméra frontale : elle est jointe dans le message suivant. Décris ce que tu vois de façon concise.",
+    imageJpegBase64: base64Jpeg,
+  };
 });
 
 // --- Outils musique : délèguent au module music.js ---
@@ -220,65 +231,47 @@ registerTool("info_lecture", async () => {
 });
 
 /**
- * Exécute un appel d'outil demandé par Claude (dispatch générique).
- * Retourne toujours un bloc tool_result valide, même en cas d'échec
- * (is_error: true) pour que Claude puisse rebondir.
+ * Exécute un appel d'outil demandé par le modèle (dispatch générique).
+ * Retourne { text, imageJpegBase64? } — toujours exploitable, même en
+ * cas d'échec (le texte d'erreur permet au modèle de rebondir).
  */
-async function runTool(toolUse) {
-  const handler = toolHandlers.get(toolUse.name);
-
+async function runTool(name, args) {
+  const handler = toolHandlers.get(name);
   if (!handler) {
-    return {
-      type: "tool_result",
-      tool_use_id: toolUse.id,
-      content: "Outil inconnu : " + toolUse.name,
-      is_error: true,
-    };
+    return { text: "Outil inconnu : " + name };
   }
-
   try {
-    const result = await handler(toolUse.input || {});
-    return {
-      type: "tool_result",
-      tool_use_id: toolUse.id,
-      content: typeof result === "string" ? result : result,
-    };
+    const result = await handler(args || {});
+    return typeof result === "string" ? { text: result } : result;
   } catch (err) {
-    return {
-      type: "tool_result",
-      tool_use_id: toolUse.id,
-      content: "Échec de l'outil : " + err.message,
-      is_error: true,
-    };
+    return { text: "Échec de l'outil : " + err.message };
   }
 }
 
 // ------------------------------------------------------------
-// Claude : boucle de conversation avec gestion générique du tool_use
+// Groq chat : boucle de conversation avec gestion générique
+// des tool_calls (format OpenAI)
 // ------------------------------------------------------------
 
-/** Un appel brut à l'API Messages d'Anthropic. */
-async function callClaude(messages) {
+/** Un appel brut à l'endpoint chat/completions de Groq. */
+async function callGroqChat(messages) {
   const response = await fetchWithTimeout(
-    ANTHROPIC_URL,
+    CHAT_URL,
     {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-api-key": getAnthropicKey(),
-        "anthropic-version": "2023-06-01",
-        // Obligatoire pour les appels directs depuis un navigateur (CORS)
-        "anthropic-dangerous-direct-browser-access": "true",
+        Authorization: "Bearer " + getGroqKey(),
       },
       body: JSON.stringify({
-        model: CLAUDE_MODEL,
+        model: CHAT_MODEL,
         max_tokens: 1024,
-        system: SYSTEM_PROMPT,
-        tools: TOOLS,
+        temperature: 0.6,
+        tools: toolsForGroq(),
         messages,
       }),
     },
-    "anthropic"
+    "groq"
   );
 
   if (!response.ok) {
@@ -287,55 +280,81 @@ async function callClaude(messages) {
       const errJson = await response.json();
       detail = errJson?.error?.message || "";
     } catch { /* corps non-JSON, tant pis */ }
-    throw new ApiError("Erreur Anthropic " + response.status + (detail ? " : " + detail : ""), response.status, "anthropic");
+    throw new ApiError("Erreur Groq " + response.status + (detail ? " : " + detail : ""), response.status, "groq");
   }
 
   return response.json();
 }
 
 /**
- * Envoie le message utilisateur + l'historique à Claude et gère la
- * boucle de tool_use jusqu'à obtenir une réponse texte finale.
+ * Envoie le message utilisateur + l'historique au modèle et gère la
+ * boucle de tool_calls jusqu'à obtenir une réponse texte finale.
  *
  * @param {Array} history Historique [{role, content}] des tours précédents
  * @param {string} userText Message utilisateur transcrit
  * @param {(label: string) => void} [onToolUse] Rappel UI quand un outil tourne
  * @returns {Promise<string>} texte final de la réponse de JARVIS
  */
-export async function askClaude(history, userText, onToolUse) {
+export async function askAssistant(history, userText, onToolUse) {
   // Messages locaux au tour courant (l'historique global reste géré par app.js)
-  const messages = [...history, { role: "user", content: userText }];
+  const messages = [
+    { role: "system", content: SYSTEM_PROMPT },
+    ...history,
+    { role: "user", content: userText },
+  ];
 
   const MAX_TOOL_ROUNDS = 5; // garde-fou contre les boucles infinies
   let rounds = 0;
 
-  let response = await callClaude(messages);
+  let data = await callGroqChat(messages);
+  let message = data.choices?.[0]?.message || {};
 
-  // Boucle générique : tant que Claude demande des outils, on les exécute
-  while (response.stop_reason === "tool_use" && rounds < MAX_TOOL_ROUNDS) {
+  // Boucle générique : tant que le modèle demande des outils, on les exécute
+  while (message.tool_calls && message.tool_calls.length && rounds < MAX_TOOL_ROUNDS) {
     rounds++;
 
-    const toolUses = response.content.filter((block) => block.type === "tool_use");
-    if (onToolUse && toolUses.length) onToolUse(toolUses.map((t) => t.name).join(", "));
-
-    // Exécute tous les appels demandés (dispatch via le registre)
-    const toolResults = [];
-    for (const toolUse of toolUses) {
-      toolResults.push(await runTool(toolUse));
+    if (onToolUse) {
+      onToolUse(message.tool_calls.map((c) => c.function.name).join(", "));
     }
 
-    // Le tour assistant (avec les blocs tool_use) puis TOUS les résultats
-    // dans UN SEUL message user — exigé par l'API.
-    messages.push({ role: "assistant", content: response.content });
-    messages.push({ role: "user", content: toolResults });
+    // Le tour assistant (avec ses tool_calls) doit précéder les résultats
+    messages.push(message);
 
-    response = await callClaude(messages);
+    // Exécute chaque appel et collecte les éventuelles images à joindre
+    const imagesToAttach = [];
+    for (const call of message.tool_calls) {
+      let args = {};
+      try {
+        args = JSON.parse(call.function.arguments || "{}");
+      } catch { /* arguments illisibles : l'outil recevra {} */ }
+
+      const result = await runTool(call.function.name, args);
+
+      // Format OpenAI : un message "tool" (texte uniquement) par appel
+      messages.push({
+        role: "tool",
+        tool_call_id: call.id,
+        content: result.text,
+      });
+
+      if (result.imageJpegBase64) imagesToAttach.push(result.imageJpegBase64);
+    }
+
+    // Les images (ex: capture caméra) sont jointes dans un message user
+    // — le format OpenAI n'accepte pas d'image dans un message "tool".
+    for (const img of imagesToAttach) {
+      messages.push({
+        role: "user",
+        content: [
+          { type: "text", text: "Voici l'image capturée par la caméra :" },
+          { type: "image_url", image_url: { url: "data:image/jpeg;base64," + img } },
+        ],
+      });
+    }
+
+    data = await callGroqChat(messages);
+    message = data.choices?.[0]?.message || {};
   }
 
-  // Concatène les blocs texte de la réponse finale
-  return response.content
-    .filter((block) => block.type === "text")
-    .map((block) => block.text)
-    .join(" ")
-    .trim();
+  return (message.content || "").trim();
 }

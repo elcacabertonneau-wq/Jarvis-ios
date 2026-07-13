@@ -1,16 +1,11 @@
 // ============================================================
 // config.js — Gestion des clés API (localStorage uniquement)
 // Aucune clé n'est jamais écrite en dur dans le code.
+// Deux clés : Groq (transcription + cerveau) et YouTube (musique).
 // ============================================================
 
-const STORAGE_ANTHROPIC = "jarvis_anthropic_key";
 const STORAGE_GROQ = "jarvis_groq_key";
 const STORAGE_YOUTUBE = "jarvis_youtube_key";
-
-/** Retourne la clé Anthropic stockée, ou null. */
-export function getAnthropicKey() {
-  return localStorage.getItem(STORAGE_ANTHROPIC);
-}
 
 /** Retourne la clé Groq stockée, ou null. */
 export function getGroqKey() {
@@ -22,14 +17,13 @@ export function getYouTubeKey() {
   return localStorage.getItem(STORAGE_YOUTUBE);
 }
 
-/** Vrai si les trois clés sont présentes. */
+/** Vrai si les deux clés sont présentes. */
 export function hasKeys() {
-  return Boolean(getAnthropicKey() && getGroqKey() && getYouTubeKey());
+  return Boolean(getGroqKey() && getYouTubeKey());
 }
 
-/** Enregistre les trois clés (après trim). */
-export function saveKeys(anthropicKey, groqKey, youtubeKey) {
-  localStorage.setItem(STORAGE_ANTHROPIC, anthropicKey.trim());
+/** Enregistre les deux clés (après trim). */
+export function saveKeys(groqKey, youtubeKey) {
   localStorage.setItem(STORAGE_GROQ, groqKey.trim());
   localStorage.setItem(STORAGE_YOUTUBE, youtubeKey.trim());
 }
@@ -40,18 +34,16 @@ export function saveKeys(anthropicKey, groqKey, youtubeKey) {
 
 const overlay = document.getElementById("config-overlay");
 const msgBox = document.getElementById("config-msg");
-const inputAnthropic = document.getElementById("key-anthropic");
 const inputGroq = document.getElementById("key-groq");
 const inputYouTube = document.getElementById("key-youtube");
 const saveBtn = document.getElementById("config-save");
 
 /**
  * Affiche l'écran de configuration.
- * @param {string} [message] Message d'erreur optionnel (ex: "Clé Anthropic invalide")
+ * @param {string} [message] Message d'erreur optionnel (ex: "Clé Groq invalide")
  */
 export function showConfig(message) {
   // Pré-remplit avec les clés existantes pour permettre la correction
-  inputAnthropic.value = getAnthropicKey() || "";
   inputGroq.value = getGroqKey() || "";
   inputYouTube.value = getYouTubeKey() || "";
 
@@ -84,18 +76,17 @@ export function initConfigUI(onSaved) {
   });
 
   saveBtn.addEventListener("click", () => {
-    const a = inputAnthropic.value.trim();
     const g = inputGroq.value.trim();
     const y = inputYouTube.value.trim();
 
-    // Validation minimale : les trois champs doivent être remplis
-    if (!a || !g || !y) {
-      msgBox.textContent = "Les trois clés sont requises.";
+    // Validation minimale : les deux champs doivent être remplis
+    if (!g || !y) {
+      msgBox.textContent = "Les deux clés sont requises.";
       msgBox.classList.remove("hidden");
       return;
     }
 
-    saveKeys(a, g, y);
+    saveKeys(g, y);
     hideConfig();
     onSaved();
   });

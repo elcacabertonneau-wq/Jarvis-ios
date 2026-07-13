@@ -4,17 +4,17 @@
 // États (reflétés sur <body data-state> pour le CSS) :
 //   idle      → en attente (orbe fixe)
 //   listening → enregistrement en cours (pulsation)
-//   thinking  → transcription + appel Claude (rotation)
+//   thinking  → transcription + appel du modèle (rotation)
 //   speaking  → lecture de la réponse (ondes)
 //
 // Flux : appui long sur l'orbe → enregistrement → relâche →
-// Groq Whisper → texte → Claude (avec outils) → affichage + voix.
+// Groq Whisper → texte → modèle Groq (avec outils) → affichage + voix.
 // ============================================================
 
 import { hasKeys, showConfig, initConfigUI } from "./config.js";
 import { startRecording, stopRecording, audioExtension, unlockSpeech, speak, stopSpeaking } from "./audio.js";
 import { startCamera } from "./vision.js";
-import { transcribe, askClaude, ApiError } from "./api.js";
+import { transcribe, askAssistant, ApiError } from "./api.js";
 import { initMusic, unlockPlayer, duckVolume, restoreVolume } from "./music.js";
 
 // --- Éléments du DOM ---
@@ -27,7 +27,7 @@ const videoFrame = document.getElementById("video-frame");
 
 // --- État global ---
 let state = "idle";
-let history = []; // historique de conversation envoyé à Claude
+let history = []; // historique de conversation envoyé au modèle
 let firstTap = true; // pour le déblocage de speechSynthesis
 let cameraStarted = false;
 
@@ -87,8 +87,7 @@ function showError(message) {
 function handleApiError(err) {
   if (err instanceof ApiError && err.status === 401) {
     // Clé invalide → réaffiche l'écran de config avec un message clair
-    const label = err.provider === "anthropic" ? "Clé Anthropic invalide" : "Clé Groq invalide";
-    showConfig(label + ". Vérifiez-la puis réessayez.");
+    showConfig("Clé Groq invalide. Vérifiez-la puis réessayez.");
     return;
   }
   showError(err.message || "Erreur inconnue.");
@@ -111,8 +110,8 @@ async function processTurn(audioBlob) {
     }
     addMessage("user", userText);
 
-    // 2. Texte + historique → Claude (boucle d'outils générique dans api.js)
-    const reply = await askClaude(history, userText, (toolName) => {
+    // 2. Texte + historique → modèle Groq (boucle d'outils générique dans api.js)
+    const reply = await askAssistant(history, userText, (toolName) => {
       statusText.textContent = "OUTIL : " + toolName.toUpperCase();
     });
 

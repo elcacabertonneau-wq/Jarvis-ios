@@ -4,7 +4,7 @@
 // La caméra est demandée avec facingMode: "user" (frontale).
 // captureFrame() dessine la frame courante du <video> sur un
 // <canvas> et retourne le JPEG encodé en base64 (sans préfixe
-// data:), prêt pour un bloc "image" de l'API Claude.
+// data:), prêt pour un contenu image_url (format OpenAI/Groq).
 // ============================================================
 
 const video = document.getElementById("camera");
@@ -76,7 +76,7 @@ export function captureFrame() {
     throw e;
   }
 
-  // Largeur plafonnée à 1024 px : suffisant pour Claude, économise des tokens
+  // Largeur plafonnée à 1024 px : suffisant pour le modèle, économise des tokens
   const maxWidth = 1024;
   const scale = Math.min(1, maxWidth / video.videoWidth);
 

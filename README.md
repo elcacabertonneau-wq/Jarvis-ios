@@ -3,9 +3,9 @@
 Assistant vocal style Iron Man, entièrement côté navigateur : **aucun backend, aucune fonction serverless**. Déployable en statique sur Netlify et pensé pour **Safari sur iPad** (portrait).
 
 - 🎙️ **Voix → texte** : Groq Whisper (`whisper-large-v3`, français)
-- 🧠 **Cerveau** : API Claude (`claude-sonnet-4-6`), appels directs depuis le navigateur
+- 🧠 **Cerveau** : Groq (Llama 4 Scout, tool use + vision), appels directs depuis le navigateur — **une seule clé pour la voix et l'intelligence**
 - 🗣️ **Texte → voix** : `speechSynthesis` (voix fr-FR native)
-- 👁️ **Vision** : outil `regarder_camera` (tool use) — Claude décrit ce que voit la caméra frontale
+- 👁️ **Vision** : outil `regarder_camera` (tool use) — le modèle décrit ce que voit la caméra frontale
 - 🎵 **Musique** : YouTube (API IFrame + Data API v3) — « mets du Nekfeu », pause, suivant...
 
 ---
@@ -14,7 +14,7 @@ Assistant vocal style Iron Man, entièrement côté navigateur : **aucun backend
 
 > **Ne commitez JAMAIS une clé API dans ce dépôt.** Ni dans le code, ni dans un fichier de config, ni dans un commit "temporaire". Une clé poussée sur GitHub doit être considérée comme compromise et révoquée immédiatement.
 
-Les clés sont saisies **au premier lancement** dans l'écran de configuration de l'app et stockées **uniquement dans le `localStorage` de votre navigateur**. Elles ne transitent que vers les API Anthropic et Groq.
+Les clés sont saisies **au premier lancement** dans l'écran de configuration de l'app et stockées **uniquement dans le `localStorage` de votre navigateur**. Elles ne transitent que vers les API Groq et YouTube.
 
 Conséquence assumée du "zéro backend" : toute personne ayant accès physique à votre iPad (ou à sa session Safari) peut lire ces clés. Utilisez des clés dédiées avec des limites de dépense, et révoquez-les au moindre doute.
 
@@ -24,8 +24,7 @@ Conséquence assumée du "zéro backend" : toute personne ayant accès physique 
 
 | Clé | Où la créer | Remarques |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | [platform.claude.com](https://platform.claude.com/) → Settings → API Keys | Format `sk-ant-...`. Prévoir quelques crédits. |
-| `GROQ_API_KEY` | [console.groq.com/keys](https://console.groq.com/keys) | Format `gsk_...`. Whisper y est très bon marché. |
+| `GROQ_API_KEY` | [console.groq.com/keys](https://console.groq.com/keys) | Format `gsk_...`. Sert à la fois pour Whisper (voix → texte) et le modèle (Llama 4 Scout). Palier gratuit disponible. |
 | `YOUTUBE_API_KEY` | [console.cloud.google.com](https://console.cloud.google.com/) → créer un projet → activer **YouTube Data API v3** → Identifiants → Clé API | Format `AIza...`. Quota gratuit : 10 000 unités/jour (une recherche = 100 unités). |
 
 ---
@@ -56,7 +55,7 @@ Le site est 100 % statique : aucun build, aucune variable d'environnement à con
 ## Utilisation sur iPad (Safari)
 
 1. Ouvrez l'URL Netlify dans Safari
-2. Au premier lancement, saisissez vos trois clés API (icône 👁️ pour vérifier la saisie), puis **INITIALISER**
+2. Au premier lancement, saisissez vos deux clés API (Groq et YouTube) (icône 👁️ pour vérifier la saisie), puis **INITIALISER**
 3. **Maintenez l'orbe central** pour parler, **relâchez** pour envoyer
 4. Autorisez le micro et la caméra quand Safari le demande
 5. Astuce : **Partager → Sur l'écran d'accueil** pour une expérience plein écran
@@ -82,12 +81,12 @@ js/config.js      # Gestion des clés API (localStorage) + écran de config
 js/audio.js       # MediaRecorder (micro) + speechSynthesis (voix)
 js/vision.js      # Webcam + capture de frame (canvas → JPEG base64)
 js/music.js       # Player YouTube caché + recherche + barre de lecture
-js/api.js         # Appels directs Claude + Groq, registre d'outils
+js/api.js         # Appels directs Groq (Whisper + chat/outils), registre d'outils
 ```
 
 ## Musique YouTube
 
-Trois outils sont exposés à Claude (registre dans `js/api.js`, logique dans `js/music.js`) :
+Trois outils sont exposés au modèle (registre dans `js/api.js`, logique dans `js/music.js`) :
 
 | Outil | Exemple de phrase | Effet |
 |---|---|---|
@@ -103,35 +102,35 @@ Comportements :
 
 > ⚠️ **Restriction iOS, non contournable** : la lecture s'arrête si l'iPad est verrouillé ou si Safari passe en arrière-plan. C'est une limitation d'Apple sur la lecture média dans les pages web — aucune astuce front-end ne la contourne.
 
-## Ajouter un nouvel outil (mails, musique...)
+## Ajouter un nouvel outil (mails...)
 
-Le registre d'outils est prêt à être étendu — la boucle de `tool_use` dans `js/api.js` est générique. Deux étapes, dans `js/api.js` :
+Le registre d'outils est prêt à être étendu — la boucle de `tool_calls` dans `js/api.js` est générique. Deux étapes, dans `js/api.js` :
 
 ```js
 // 1. Déclarer le schéma dans la constante TOOLS
 export const TOOLS = [
   // ...outils existants...
   {
-    name: "jouer_musique",
-    description: "Lance la lecture d'un morceau demandé par l'utilisateur.",
+    name: "lire_mails",
+    description: "Résume les derniers mails non lus de l'utilisateur.",
     input_schema: {
       type: "object",
       properties: {
-        titre: { type: "string", description: "Titre du morceau" },
+        nombre: { type: "number", description: "Nombre de mails à lire" },
       },
-      required: ["titre"],
+      required: [],
     },
   },
 ];
 
 // 2. Enregistrer le handler correspondant
-registerTool("jouer_musique", async (input) => {
+registerTool("lire_mails", async (input) => {
   // ... votre implémentation ...
-  return "Lecture de « " + input.titre + " » lancée.";
+  return "Vous avez 3 mails non lus, Monsieur.";
 });
 ```
 
-Le handler peut retourner une chaîne, ou un tableau de blocs de contenu (texte et/ou image) — c'est ainsi que fonctionne `regarder_camera`.
+Le handler retourne une chaîne, ou un objet `{ text, imageJpegBase64 }` quand le résultat inclut une image — c'est ainsi que fonctionne `regarder_camera` (l'image est renvoyée au modèle dans un message séparé, le format OpenAI n'acceptant que du texte dans les résultats d'outils).
 
 ## Gestion d'erreurs
 
