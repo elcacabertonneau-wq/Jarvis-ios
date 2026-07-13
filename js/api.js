@@ -18,7 +18,8 @@
 
 import { getGroqKey } from "./config.js";
 import { captureFrame } from "./vision.js";
-import { playSearch, controlPlayback, getNowPlaying } from "./music.js";
+import { playSearch, controlPlayback, getNowPlaying, showVideo, hideVideo } from "./music.js";
+import { webSearch, imageSearch } from "./search.js";
 
 const CHAT_URL = "https://api.groq.com/openai/v1/chat/completions";
 const GROQ_STT_URL = "https://api.groq.com/openai/v1/audio/transcriptions";
@@ -34,7 +35,10 @@ const SYSTEM_PROMPT = [
   "Tes réponses sont TRÈS courtes : 1 à 3 phrases maximum.",
   "Elles sont lues à voix haute — pas de listes, pas de markdown, pas de code.",
   "Si on te demande ce que tu vois, utilise l'outil regarder_camera.",
-  "Pour la musique, utilise jouer_musique, controler_lecture et info_lecture.",
+  "Pour la musique, utilise jouer_musique, controler_lecture et info_lecture,",
+  "et afficher_video pour montrer ou masquer le clip à l'écran.",
+  "Pour toute question d'actualité ou d'information récente, utilise recherche_internet.",
+  "Pour montrer des images à l'utilisateur, utilise chercher_images.",
 ].join(" ");
 
 // ------------------------------------------------------------
@@ -173,6 +177,58 @@ export const TOOLS = [
       required: [],
     },
   },
+  {
+    name: "afficher_video",
+    description:
+      "Affiche ou masque à l'écran la vidéo YouTube en cours de lecture. " +
+      "Utilise cet outil quand l'utilisateur dit « montre la vidéo », " +
+      "« affiche le clip » ou « cache la vidéo ».",
+    input_schema: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["montrer", "masquer"],
+          description: "Afficher ou masquer le panneau vidéo.",
+        },
+      },
+      required: ["action"],
+    },
+  },
+  {
+    name: "recherche_internet",
+    description:
+      "Effectue une recherche sur internet et renvoie une réponse factuelle " +
+      "sourcée. Utilise cet outil pour toute question d'actualité, de météo, " +
+      "de résultats sportifs, ou d'information récente que tu ne connais pas.",
+    input_schema: {
+      type: "object",
+      properties: {
+        question: {
+          type: "string",
+          description: "La question à rechercher, reformulée clairement.",
+        },
+      },
+      required: ["question"],
+    },
+  },
+  {
+    name: "chercher_images",
+    description:
+      "Cherche des images sur Google et les affiche à l'écran dans la " +
+      "conversation. Utilise cet outil quand l'utilisateur demande de voir " +
+      "ou montrer des images/photos de quelque chose.",
+    input_schema: {
+      type: "object",
+      properties: {
+        recherche: {
+          type: "string",
+          description: "Ce qu'il faut chercher en images.",
+        },
+      },
+      required: ["recherche"],
+    },
+  },
   // Prochains outils (exemples à venir) : lire_mails...
   // 1. Ajouter le schéma ici.
   // 2. Enregistrer le handler avec registerTool("nom", fn) ci-dessous.
@@ -228,6 +284,30 @@ registerTool("controler_lecture", async (input) => {
 registerTool("info_lecture", async () => {
   const title = getNowPlaying();
   return title ? "En cours de lecture : « " + title + " »." : "Aucune lecture en cours.";
+});
+
+registerTool("afficher_video", async (input) => {
+  return input.action === "masquer" ? hideVideo() : showVideo();
+});
+
+// --- Recherche internet : déléguée au modèle Compound de Groq ---
+registerTool("recherche_internet", async (input) => {
+  return webSearch(input.question || "");
+});
+
+// --- Recherche d'images : affichées dans le fil + titres pour le modèle ---
+registerTool("chercher_images", async (input) => {
+  const query = input.recherche || "";
+  const images = await imageSearch(query, 4);
+  if (!images.length) {
+    return "Aucune image trouvée pour « " + query + " ».";
+  }
+  // L'affichage est fait par app.js (événement découplé, comme music-error)
+  window.dispatchEvent(new CustomEvent("show-images", { detail: { query, images } }));
+  return (
+    "J'affiche " + images.length + " images de « " + query + " » à l'écran : " +
+    images.map((img) => img.title).filter(Boolean).slice(0, 4).join(" ; ")
+  );
 });
 
 /**

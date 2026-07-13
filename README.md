@@ -7,6 +7,9 @@ Assistant vocal style Iron Man, entièrement côté navigateur : **aucun backend
 - 🗣️ **Texte → voix** : `speechSynthesis` (voix fr-FR native)
 - 👁️ **Vision** : outil `regarder_camera` (tool use) — le modèle décrit ce que voit la caméra frontale
 - 🎵 **Musique** : YouTube (API IFrame + Data API v3) — « mets du Nekfeu », pause, suivant...
+- 📺 **Vidéo** : « montre la vidéo » affiche le clip en grand panneau HUD (réductible)
+- 🌐 **Recherche internet** : via Groq Compound (recherche web côté serveur Groq, aucune clé en plus)
+- 🖼️ **Images** : « montre-moi des photos de... » affiche une grille d'images dans le fil (Google Custom Search, optionnel)
 
 ---
 
@@ -26,6 +29,9 @@ Conséquence assumée du "zéro backend" : toute personne ayant accès physique 
 |---|---|---|
 | `GROQ_API_KEY` | [console.groq.com/keys](https://console.groq.com/keys) | Format `gsk_...`. Sert à la fois pour Whisper (voix → texte) et le modèle (Llama 4 Scout). Palier gratuit disponible. |
 | `YOUTUBE_API_KEY` | [console.cloud.google.com](https://console.cloud.google.com/) → créer un projet → activer **YouTube Data API v3** → Identifiants → Clé API | Format `AIza...`. Quota gratuit : 10 000 unités/jour (une recherche = 100 unités). |
+| ID moteur Google *(optionnel, pour les images)* | 1. Dans le même projet Google Cloud, activer aussi **Custom Search API**. 2. Sur [programmablesearchengine.google.com](https://programmablesearchengine.google.com/) : créer un moteur, choisir **Rechercher sur l'ensemble du Web** et activer **Recherche d'images**. 3. Copier l'**ID du moteur** (`cx`). | La même clé `AIza...` sert pour YouTube et les images. 100 requêtes/jour gratuites. Sans cet ID, tout fonctionne sauf `chercher_images`. |
+
+> 💡 **Sécurisez votre clé Google** : dans la console, ouvrez la clé → *Restrictions liées aux applications* → **Sites web** → ajoutez `https://votre-site.netlify.app/*` ; puis *Restrictions relatives aux API* → cochez uniquement **YouTube Data API v3** et **Custom Search API**. Même volée, la clé sera inutilisable ailleurs.
 
 ---
 
@@ -93,6 +99,14 @@ Trois outils sont exposés au modèle (registre dans `js/api.js`, logique dans `
 | `jouer_musique(recherche)` | « Mets du Nekfeu » | Recherche YouTube (5 résultats intégrables) puis lance le premier |
 | `controler_lecture(action)` | « Mets pause », « morceau suivant » | `pause` / `reprendre` / `stop` / `suivant` |
 | `info_lecture()` | « C'est quoi cette musique ? » | Renvoie le titre en cours |
+| `afficher_video(action)` | « Montre la vidéo », « cache le clip » | Affiche le player en grand panneau HUD / le re-masque (bouton ▣ de la barre aussi) |
+
+## Recherche internet et images
+
+| Outil | Exemple de phrase | Effet |
+|---|---|---|
+| `recherche_internet(question)` | « Quel temps fera-t-il demain à Paris ? » | Le modèle Compound de Groq cherche sur le web côté serveur et renvoie une réponse sourcée — aucune clé supplémentaire |
+| `chercher_images(recherche)` | « Montre-moi des photos d'aurores boréales » | Google Custom Search (images) → grille de 4 miniatures dans le fil de conversation. Nécessite l'ID moteur Google (optionnel) |
 
 Comportements :
 

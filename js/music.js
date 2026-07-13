@@ -51,12 +51,18 @@ const barStop = document.getElementById("pb-stop");
  * À appeler une seule fois au démarrage de l'app.
  */
 export function initMusic() {
-  // Conteneur du player : 1x1 px, quasi invisible, mais dans le DOM
-  // (exigence de l'API IFrame et des règles de lecture iOS)
+  // Conteneur du player : 1x1 px par défaut (audio seul), mais peut
+  // devenir un panneau vidéo visible (classe .video-visible).
+  // Toujours présent dans le DOM (exigence API IFrame + lecture iOS).
   const holder = document.createElement("div");
   holder.id = "yt-holder";
-  holder.innerHTML = '<div id="yt-player"></div>';
+  holder.innerHTML =
+    '<div class="yt-panel-frame">' +
+    '<div id="yt-player"></div>' +
+    '<button id="yt-close" aria-label="Masquer la vidéo">✕</button>' +
+    "</div>";
   document.body.appendChild(holder);
+  holder.querySelector("#yt-close").addEventListener("click", () => hideVideo());
 
   // Rappel global exigé par l'API IFrame YouTube
   window.onYouTubeIframeAPIReady = createPlayer;
@@ -74,6 +80,9 @@ export function initMusic() {
     else player.playVideo();
   });
   barStop.addEventListener("click", () => stopMusic());
+
+  // Bouton ▣ de la barre : bascule l'affichage du panneau vidéo
+  document.getElementById("pb-video").addEventListener("click", () => toggleVideo());
 }
 
 /** Crée le player YouTube caché (appelé quand l'API IFrame est prête). */
@@ -232,14 +241,40 @@ function playNext() {
   return "Lecture de « " + queue[queueIndex].title + " ».";
 }
 
-/** Arrête tout et masque la barre. */
+/** Arrête tout, masque la barre et le panneau vidéo. */
 export function stopMusic() {
   if (playerReady) {
     try { player.stopVideo(); } catch { /* player peut-être détruit */ }
   }
   currentTitle = "";
   pendingItem = null;
+  hideVideo();
   hideBar();
+}
+
+// ------------------------------------------------------------
+// Panneau vidéo : le player caché devient visible en grand
+// (outil afficher_video + bouton ▣ de la barre de lecture)
+// ------------------------------------------------------------
+
+/** Affiche le player en grand panneau HUD. @returns {string} message */
+export function showVideo() {
+  if (!currentTitle) throw new Error("Aucune vidéo en cours de lecture.");
+  document.getElementById("yt-holder").classList.add("video-visible");
+  return "Vidéo affichée à l'écran.";
+}
+
+/** Réduit le player à sa forme cachée (audio seul). @returns {string} message */
+export function hideVideo() {
+  document.getElementById("yt-holder").classList.remove("video-visible");
+  return "Vidéo masquée, la lecture continue en audio.";
+}
+
+/** Bascule l'affichage vidéo (bouton ▣). */
+export function toggleVideo() {
+  const holder = document.getElementById("yt-holder");
+  if (holder.classList.contains("video-visible")) hideVideo();
+  else if (currentTitle) showVideo();
 }
 
 /**

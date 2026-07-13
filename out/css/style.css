@@ -421,6 +421,78 @@ body[data-state="speaking"] .orb-waves { display: flex; }
   overflow: hidden;
 }
 
+/* Le player remplit toujours son cadre (1x1 caché, panneau visible) */
+.yt-panel-frame { width: 100%; height: 100%; position: relative; }
+.yt-panel-frame iframe {
+  width: 100% !important;
+  height: 100% !important;
+  display: block;
+}
+
+#yt-close {
+  display: none;
+  position: absolute;
+  top: -14px;
+  right: -14px;
+  width: 32px;
+  height: 32px;
+  background: var(--bg);
+  border: 1px solid var(--cyan);
+  color: var(--cyan);
+  font-family: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  box-shadow: 0 0 12px var(--cyan-dim);
+  z-index: 2;
+}
+
+/* Panneau vidéo visible : grand cadre HUD centré en haut */
+#yt-holder.video-visible {
+  width: min(92vw, 620px);
+  aspect-ratio: 16 / 9;
+  height: auto;
+  left: 50%;
+  bottom: auto;
+  top: calc(env(safe-area-inset-top, 0px) + 72px);
+  transform: translateX(-50%);
+  opacity: 1;
+  pointer-events: auto;
+  overflow: visible;
+  z-index: 24;
+  border: 1px solid var(--cyan);
+  box-shadow: 0 0 34px var(--cyan-dim);
+  background: #000;
+  animation: msg-in 0.25s ease-out;
+}
+#yt-holder.video-visible #yt-close { display: block; }
+
+/* ===== Images dans le fil de conversation ===== */
+.msg-images { max-width: min(92%, 640px); }
+
+.img-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.img-grid img {
+  width: 100%;
+  max-width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border: 1px solid var(--cyan-dim);
+  background: #000;
+  display: block;
+}
+
+/* Mention "(optionnel)" dans l'écran de config */
+.optional {
+  opacity: 0.5;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
 /* ===== Écran de configuration ===== */
 .config-overlay {
   position: fixed;

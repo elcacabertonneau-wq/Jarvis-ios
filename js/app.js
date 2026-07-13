@@ -70,6 +70,40 @@ function addMessage(who, text) {
   conversation.scrollTop = conversation.scrollHeight;
 }
 
+/**
+ * Ajoute une grille d'images dans le fil de conversation
+ * (résultats de l'outil chercher_images).
+ * @param {string} query Recherche d'origine (légende)
+ * @param {Array<{url: string, thumbnail: string, title: string}>} images
+ */
+function addImagesMessage(query, images) {
+  const div = document.createElement("div");
+  div.className = "msg jarvis msg-images";
+
+  const label = document.createElement("span");
+  label.className = "who";
+  label.textContent = "JARVIS — IMAGES : " + query.toUpperCase();
+  div.appendChild(label);
+
+  const grid = document.createElement("div");
+  grid.className = "img-grid";
+  for (const img of images) {
+    const el = document.createElement("img");
+    // Miniature CSE (plus légère et plus fiable en hotlink que l'original)
+    el.src = img.thumbnail;
+    el.alt = img.title;
+    el.loading = "lazy";
+    el.draggable = false;
+    // Une image qui ne charge pas (hotlink bloqué) est simplement retirée
+    el.addEventListener("error", () => el.remove());
+    grid.appendChild(el);
+  }
+  div.appendChild(grid);
+
+  conversation.appendChild(div);
+  conversation.scrollTop = conversation.scrollHeight;
+}
+
 let errorTimer = null;
 
 /** Affiche une erreur à l'écran pendant quelques secondes. */
@@ -243,6 +277,11 @@ window.addEventListener("offline", () => showError("Connexion internet perdue.")
 
 // Erreurs asynchrones du module musique (vidéo non lisible, etc.)
 window.addEventListener("music-error", (ev) => showError(ev.detail));
+
+// Images trouvées par l'outil chercher_images → affichées dans le fil
+window.addEventListener("show-images", (ev) => {
+  addImagesMessage(ev.detail.query, ev.detail.images);
+});
 window.addEventListener("online", () => {
   errorBanner.classList.add("hidden");
 });
