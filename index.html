@@ -45,6 +45,17 @@
   <!-- ===== Bandeau d'erreur ===== -->
   <div class="error-banner hidden" id="error-banner" role="alert"></div>
 
+  <!-- ===== Barre de lecture musique (masquée si rien ne joue) ===== -->
+  <div class="player-bar hidden" id="player-bar">
+    <img id="pb-thumb" alt="" draggable="false">
+    <div class="pb-info">
+      <div class="pb-title-wrap"><span class="pb-title" id="pb-title"></span></div>
+      <div class="pb-progress"><div class="pb-progress-fill" id="pb-progress"></div></div>
+    </div>
+    <button class="pb-btn" id="pb-toggle" aria-label="Lecture/Pause">❚❚</button>
+    <button class="pb-btn" id="pb-stop" aria-label="Stop">■</button>
+  </div>
+
   <!-- ===== Bouton central (appui long = parler) ===== -->
   <footer class="controls">
     <div class="orb-wrap">
@@ -83,6 +94,16 @@
       <div class="key-field">
         <input type="password" id="key-groq" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="gsk_...">
         <button class="eye-btn" data-target="key-groq" aria-label="Afficher/masquer la clé">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6">
+            <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/>
+          </svg>
+        </button>
+      </div>
+
+      <label class="config-label" for="key-youtube">YOUTUBE_API_KEY</label>
+      <div class="key-field">
+        <input type="password" id="key-youtube" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="AIza...">
+        <button class="eye-btn" data-target="key-youtube" aria-label="Afficher/masquer la clé">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6">
             <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/>
           </svg>

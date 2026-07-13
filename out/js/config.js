@@ -5,6 +5,7 @@
 
 const STORAGE_ANTHROPIC = "jarvis_anthropic_key";
 const STORAGE_GROQ = "jarvis_groq_key";
+const STORAGE_YOUTUBE = "jarvis_youtube_key";
 
 /** Retourne la clé Anthropic stockée, ou null. */
 export function getAnthropicKey() {
@@ -16,15 +17,21 @@ export function getGroqKey() {
   return localStorage.getItem(STORAGE_GROQ);
 }
 
-/** Vrai si les deux clés sont présentes. */
-export function hasKeys() {
-  return Boolean(getAnthropicKey() && getGroqKey());
+/** Retourne la clé YouTube stockée, ou null. */
+export function getYouTubeKey() {
+  return localStorage.getItem(STORAGE_YOUTUBE);
 }
 
-/** Enregistre les deux clés (après trim). */
-export function saveKeys(anthropicKey, groqKey) {
+/** Vrai si les trois clés sont présentes. */
+export function hasKeys() {
+  return Boolean(getAnthropicKey() && getGroqKey() && getYouTubeKey());
+}
+
+/** Enregistre les trois clés (après trim). */
+export function saveKeys(anthropicKey, groqKey, youtubeKey) {
   localStorage.setItem(STORAGE_ANTHROPIC, anthropicKey.trim());
   localStorage.setItem(STORAGE_GROQ, groqKey.trim());
+  localStorage.setItem(STORAGE_YOUTUBE, youtubeKey.trim());
 }
 
 // ------------------------------------------------------------
@@ -35,6 +42,7 @@ const overlay = document.getElementById("config-overlay");
 const msgBox = document.getElementById("config-msg");
 const inputAnthropic = document.getElementById("key-anthropic");
 const inputGroq = document.getElementById("key-groq");
+const inputYouTube = document.getElementById("key-youtube");
 const saveBtn = document.getElementById("config-save");
 
 /**
@@ -45,6 +53,7 @@ export function showConfig(message) {
   // Pré-remplit avec les clés existantes pour permettre la correction
   inputAnthropic.value = getAnthropicKey() || "";
   inputGroq.value = getGroqKey() || "";
+  inputYouTube.value = getYouTubeKey() || "";
 
   if (message) {
     msgBox.textContent = message;
@@ -77,15 +86,16 @@ export function initConfigUI(onSaved) {
   saveBtn.addEventListener("click", () => {
     const a = inputAnthropic.value.trim();
     const g = inputGroq.value.trim();
+    const y = inputYouTube.value.trim();
 
-    // Validation minimale : les deux champs doivent être remplis
-    if (!a || !g) {
-      msgBox.textContent = "Les deux clés sont requises.";
+    // Validation minimale : les trois champs doivent être remplis
+    if (!a || !g || !y) {
+      msgBox.textContent = "Les trois clés sont requises.";
       msgBox.classList.remove("hidden");
       return;
     }
 
-    saveKeys(a, g);
+    saveKeys(a, g, y);
     hideConfig();
     onSaved();
   });

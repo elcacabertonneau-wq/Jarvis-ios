@@ -334,6 +334,93 @@ body[data-state="thinking"] .orb-core {
 body[data-state="speaking"] .orb-core  { display: none; }
 body[data-state="speaking"] .orb-waves { display: flex; }
 
+/* ===== Barre de lecture musique ===== */
+.player-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 18px 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--cyan-dim);
+  background: rgba(0, 212, 255, 0.05);
+  box-shadow: 0 0 16px var(--cyan-faint);
+  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px));
+}
+
+/* Apparition en slide-up */
+.player-bar.slide-in { animation: slide-up 0.3s ease-out; }
+@keyframes slide-up {
+  from { transform: translateY(28px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+#pb-thumb {
+  width: 56px;
+  height: 42px;
+  object-fit: cover;
+  border: 1px solid var(--cyan-dim);
+  background: #000;
+  flex-shrink: 0;
+}
+
+.pb-info { flex: 1; min-width: 0; }
+
+/* Titre défilant (marquee CSS) */
+.pb-title-wrap {
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 12.5px;
+  color: var(--cyan);
+  letter-spacing: 0.06em;
+}
+.pb-title {
+  display: inline-block;
+  padding-left: 100%;
+  animation: marquee 12s linear infinite;
+}
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-100%); }
+}
+
+/* Barre de progression cyan */
+.pb-progress {
+  height: 3px;
+  margin-top: 7px;
+  background: var(--cyan-faint);
+}
+.pb-progress-fill {
+  height: 100%;
+  width: 0;
+  background: var(--cyan);
+  box-shadow: 0 0 8px var(--cyan);
+  transition: width 0.4s linear;
+}
+
+.pb-btn {
+  background: none;
+  border: 1px solid var(--cyan-dim);
+  color: var(--cyan);
+  font-family: inherit;
+  font-size: 13px;
+  padding: 7px 11px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.pb-btn:active { background: var(--cyan-faint); }
+
+/* Player YouTube caché : 1x1 px, présent dans le DOM (exigence iOS) */
+#yt-holder {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  opacity: 0.01;
+  pointer-events: none;
+  overflow: hidden;
+}
+
 /* ===== Écran de configuration ===== */
 .config-overlay {
   position: fixed;

@@ -15,6 +15,7 @@ import { hasKeys, showConfig, initConfigUI } from "./config.js";
 import { startRecording, stopRecording, audioExtension, unlockSpeech, speak, stopSpeaking } from "./audio.js";
 import { startCamera } from "./vision.js";
 import { transcribe, askClaude, ApiError } from "./api.js";
+import { initMusic, unlockPlayer, duckVolume, restoreVolume } from "./music.js";
 
 // --- Éléments du DOM ---
 const talkBtn = document.getElementById("talk-btn");
@@ -123,11 +124,17 @@ async function processTurn(audioBlob) {
     // Limite l'historique aux 20 derniers tours pour contenir les coûts
     if (history.length > 40) history = history.slice(-40);
 
-    // 4. Affichage + lecture vocale
+    // 4. Affichage + lecture vocale.
+    // La musique est baissée à 20 % pendant que JARVIS parle.
     const finalReply = reply || "Je n'ai pas de réponse, Monsieur.";
     addMessage("jarvis", finalReply);
     setState("speaking");
-    await speak(finalReply);
+    duckVolume();
+    try {
+      await speak(finalReply);
+    } finally {
+      restoreVolume();
+    }
   } catch (err) {
     handleApiError(err);
   } finally {
@@ -153,6 +160,11 @@ async function onPressStart(ev) {
     unlockSpeech();
     ensureCamera();
   }
+
+  // Déblocage iOS du player YouTube : playVideo() + pauseVideo() dans le
+  // geste utilisateur. Sans effet si déjà fait ; retenté à chaque tap tant
+  // que le player n'était pas prêt au premier.
+  unlockPlayer();
 
   if (!hasKeys()) {
     showConfig("Configurez vos clés API pour commencer.");
@@ -229,6 +241,9 @@ async function ensureCamera() {
 // ------------------------------------------------------------
 
 window.addEventListener("offline", () => showError("Connexion internet perdue."));
+
+// Erreurs asynchrones du module musique (vidéo non lisible, etc.)
+window.addEventListener("music-error", (ev) => showError(ev.detail));
 window.addEventListener("online", () => {
   errorBanner.classList.add("hidden");
 });
@@ -240,6 +255,9 @@ window.addEventListener("online", () => {
 initConfigUI(() => {
   addMessage("system", "Clés enregistrées. Systèmes opérationnels.");
 });
+
+// Module musique : charge l'API IFrame YouTube et prépare le player caché
+initMusic();
 
 setState("idle");
 addMessage("system", "J.A.R.V.I.S. initialisé. Maintenez l'orbe pour parler.");

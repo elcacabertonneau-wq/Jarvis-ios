@@ -16,6 +16,7 @@
 
 import { getAnthropicKey, getGroqKey } from "./config.js";
 import { captureFrame } from "./vision.js";
+import { playSearch, controlPlayback, getNowPlaying } from "./music.js";
 
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 const GROQ_URL = "https://api.groq.com/openai/v1/audio/transcriptions";
@@ -30,6 +31,7 @@ const SYSTEM_PROMPT = [
   "Tes réponses sont TRÈS courtes : 1 à 3 phrases maximum.",
   "Elles sont lues à voix haute — pas de listes, pas de markdown, pas de code.",
   "Si on te demande ce que tu vois, utilise l'outil regarder_camera.",
+  "Pour la musique, utilise jouer_musique, controler_lecture et info_lecture.",
 ].join(" ");
 
 // ------------------------------------------------------------
@@ -121,7 +123,52 @@ export const TOOLS = [
       required: [],
     },
   },
-  // Prochains outils (exemples à venir) : lire_mails, jouer_musique...
+  {
+    name: "jouer_musique",
+    description:
+      "Cherche un morceau ou un artiste sur YouTube et lance la lecture. " +
+      "Utilise cet outil quand l'utilisateur demande de la musique, " +
+      "par exemple « mets du Nekfeu » ou « joue Bohemian Rhapsody ».",
+    input_schema: {
+      type: "object",
+      properties: {
+        recherche: {
+          type: "string",
+          description: "Termes de recherche : artiste, titre, ambiance...",
+        },
+      },
+      required: ["recherche"],
+    },
+  },
+  {
+    name: "controler_lecture",
+    description:
+      "Contrôle la musique en cours : mettre en pause, reprendre, " +
+      "arrêter, ou passer au morceau suivant.",
+    input_schema: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["pause", "reprendre", "stop", "suivant"],
+          description: "L'action à effectuer sur la lecture.",
+        },
+      },
+      required: ["action"],
+    },
+  },
+  {
+    name: "info_lecture",
+    description:
+      "Renvoie le titre du morceau en cours de lecture. Utilise cet outil " +
+      "quand l'utilisateur demande « c'est quoi cette musique ? » ou similaire.",
+    input_schema: {
+      type: "object",
+      properties: {},
+      required: [],
+    },
+  },
+  // Prochains outils (exemples à venir) : lire_mails...
   // 1. Ajouter le schéma ici.
   // 2. Enregistrer le handler avec registerTool("nom", fn) ci-dessous.
 ];
@@ -156,6 +203,20 @@ registerTool("regarder_camera", async () => {
       text: "Image capturée par la caméra frontale à l'instant. Décris ce que tu vois de façon concise.",
     },
   ];
+});
+
+// --- Outils musique : délèguent au module music.js ---
+registerTool("jouer_musique", async (input) => {
+  return playSearch(input.recherche || "");
+});
+
+registerTool("controler_lecture", async (input) => {
+  return controlPlayback(input.action);
+});
+
+registerTool("info_lecture", async () => {
+  const title = getNowPlaying();
+  return title ? "En cours de lecture : « " + title + " »." : "Aucune lecture en cours.";
 });
 
 /**
