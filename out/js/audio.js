@@ -1,109 +1,140 @@
 // ============================================================
-// audio.js — Enregistrement micro (MediaRecorder) + synthèse vocale
+// audio.js — Dictée (Web Speech API) + synthèse vocale
+//
+// Voix → texte : SpeechRecognition (webkitSpeechRecognition sur
+// Safari iOS = reconnaissance Siri, native et gratuite — aucune
+// clé API nécessaire). Appui long = écoute, relâche = texte final.
 //
 // Contraintes iOS Safari :
-//  - MediaRecorder ne supporte que audio/mp4 → test isTypeSupported()
-//    avec fallback (webm pour les autres navigateurs).
-//  - speechSynthesis doit être "débloqué" par un premier geste
-//    utilisateur : on joue une utterance vide au premier tap.
+//  - SpeechRecognition doit être démarré dans un geste utilisateur
+//    (c'est le cas : pointerdown sur l'orbe).
+//  - speechSynthesis doit être "débloqué" par un premier tap :
+//    on joue une utterance vide au tout premier geste.
 // ============================================================
 
-let mediaRecorder = null;
-let micStream = null;
-let chunks = [];
-let recordingMimeType = "";
+// ------------------------------------------------------------
+// Dictée (voix → texte)
+// ------------------------------------------------------------
 
-/**
- * Choisit le premier type MIME supporté par MediaRecorder.
- * audio/mp4 en premier : seul format supporté par Safari iOS.
- */
-function pickMimeType() {
-  const candidates = ["audio/mp4", "audio/webm;codecs=opus", "audio/webm", "audio/ogg"];
-  if (typeof MediaRecorder === "undefined" || !MediaRecorder.isTypeSupported) return "";
-  return candidates.find((t) => MediaRecorder.isTypeSupported(t)) || "";
-}
+let recognition = null;
+let finalText = "";     // segments définitifs accumulés
+let interimText = "";   // dernier segment provisoire
+let dictationError = ""; // code d'erreur SpeechRecognition éventuel
+let endResolve = null;  // résolution de la promesse de stopDictation
 
-/** Extension de fichier cohérente avec le type MIME (pour l'envoi à Groq). */
-export function audioExtension() {
-  if (recordingMimeType.includes("mp4")) return "mp4";
-  if (recordingMimeType.includes("ogg")) return "ogg";
-  return "webm";
+/** Vrai si le navigateur propose la reconnaissance vocale. */
+export function isDictationSupported() {
+  return Boolean(window.SpeechRecognition || window.webkitSpeechRecognition);
 }
 
 /**
- * Démarre l'enregistrement micro.
- * @throws {Error} avec .code = "MIC_DENIED" | "MIC_UNAVAILABLE" | "NO_RECORDER"
+ * Démarre la dictée. À appeler dans un geste utilisateur (appui sur l'orbe).
+ * @returns {Promise<void>} résolue quand l'écoute a effectivement démarré
+ * @throws {Error} avec .code = "NO_SR" si non supporté
  */
-export async function startRecording() {
-  if (typeof MediaRecorder === "undefined") {
-    const e = new Error("MediaRecorder non supporté par ce navigateur.");
-    e.code = "NO_RECORDER";
-    throw e;
-  }
-
-  // Demande le micro (peut déclencher la pop-up de permission)
-  try {
-    micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  } catch (err) {
-    const e = new Error(
-      err.name === "NotAllowedError"
-        ? "Accès au microphone refusé. Autorisez le micro dans Réglages > Safari."
-        : "Microphone indisponible : " + err.message
-    );
-    e.code = err.name === "NotAllowedError" ? "MIC_DENIED" : "MIC_UNAVAILABLE";
-    throw e;
-  }
-
-  recordingMimeType = pickMimeType();
-  chunks = [];
-
-  // Si aucun type n'est reconnu, on laisse le navigateur choisir (fallback)
-  mediaRecorder = recordingMimeType
-    ? new MediaRecorder(micStream, { mimeType: recordingMimeType })
-    : new MediaRecorder(micStream);
-
-  if (!recordingMimeType) recordingMimeType = mediaRecorder.mimeType || "audio/mp4";
-
-  mediaRecorder.addEventListener("dataavailable", (ev) => {
-    if (ev.data && ev.data.size > 0) chunks.push(ev.data);
-  });
-
-  mediaRecorder.start();
-}
-
-/**
- * Arrête l'enregistrement et retourne le Blob audio.
- * @returns {Promise<Blob|null>} null si l'enregistrement était vide.
- */
-export function stopRecording() {
-  return new Promise((resolve) => {
-    if (!mediaRecorder || mediaRecorder.state === "inactive") {
-      cleanupMic();
-      resolve(null);
+export function startDictation() {
+  return new Promise((resolve, reject) => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) {
+      const e = new Error(
+        "La reconnaissance vocale n'est pas supportée par ce navigateur. " +
+        "Utilisez Safari (iOS 14.5+) ou Chrome."
+      );
+      e.code = "NO_SR";
+      reject(e);
       return;
     }
 
-    mediaRecorder.addEventListener(
-      "stop",
-      () => {
-        const blob = chunks.length ? new Blob(chunks, { type: recordingMimeType }) : null;
-        cleanupMic();
-        resolve(blob);
-      },
-      { once: true }
-    );
+    recognition = new SR();
+    recognition.lang = "fr-FR";
+    recognition.continuous = true;     // ne s'arrête pas à la première pause
+    recognition.interimResults = true; // on garde aussi le provisoire
 
-    mediaRecorder.stop();
+    finalText = "";
+    interimText = "";
+    dictationError = "";
+
+    recognition.addEventListener("result", (ev) => {
+      interimText = "";
+      for (let i = ev.resultIndex; i < ev.results.length; i++) {
+        const res = ev.results[i];
+        if (res.isFinal) finalText += res[0].transcript + " ";
+        else interimText += res[0].transcript;
+      }
+    });
+
+    recognition.addEventListener("error", (ev) => {
+      // "no-speech" et "aborted" sont des cas normaux (silence, relâche rapide)
+      if (ev.error !== "no-speech" && ev.error !== "aborted") {
+        dictationError = ev.error;
+      }
+    });
+
+    recognition.addEventListener("end", () => {
+      // Fin de session (après stop() ou coupure) : on rend le texte cumulé
+      if (endResolve) {
+        const r = endResolve;
+        endResolve = null;
+        r((finalText + " " + interimText).trim());
+      }
+    });
+
+    recognition.addEventListener("start", () => resolve(), { once: true });
+
+    try {
+      recognition.start();
+    } catch (err) {
+      reject(err);
+    }
   });
 }
 
-/** Libère le micro (l'indicateur orange d'iOS s'éteint). */
-function cleanupMic() {
-  if (micStream) {
-    micStream.getTracks().forEach((t) => t.stop());
-    micStream = null;
+/**
+ * Arrête la dictée et retourne le texte reconnu.
+ * @returns {Promise<string>} texte final (peut être vide)
+ */
+export function stopDictation() {
+  return new Promise((resolve) => {
+    if (!recognition) {
+      resolve("");
+      return;
+    }
+    endResolve = resolve;
+    try {
+      recognition.stop();
+    } catch {
+      /* déjà arrêté */
+    }
+    // Garde-fou : si l'événement "end" n'arrive pas (bug navigateur),
+    // on résout quand même avec ce qu'on a après 3 secondes.
+    setTimeout(() => {
+      if (endResolve) {
+        const r = endResolve;
+        endResolve = null;
+        r((finalText + " " + interimText).trim());
+      }
+    }, 3000);
+  });
+}
+
+/**
+ * Retourne l'erreur de la dernière session de dictée, traduite
+ * en message utilisateur, ou "" si tout s'est bien passé.
+ */
+export function lastDictationError() {
+  switch (dictationError) {
+    case "":
+      return "";
+    case "not-allowed":
+    case "service-not-allowed":
+      return "Accès au microphone refusé. Autorisez le micro dans Réglages > Safari.";
+    case "network":
+      return "La reconnaissance vocale a besoin d'internet.";
+    case "audio-capture":
+      return "Microphone indisponible.";
+    default:
+      return "Erreur de reconnaissance vocale : " + dictationError;
   }
-  mediaRecorder = null;
 }
 
 // ------------------------------------------------------------

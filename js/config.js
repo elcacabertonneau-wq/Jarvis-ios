@@ -1,16 +1,18 @@
 // ============================================================
 // config.js — Gestion des clés API (localStorage uniquement)
 // Aucune clé n'est jamais écrite en dur dans le code.
-// Deux clés : Groq (transcription + cerveau) et YouTube (musique).
+// Clés : xAI/Grok (cerveau + recherche web), YouTube (musique),
+// et ID de moteur Google (images, optionnel).
+// La voix (dictée + synthèse) est native : aucune clé.
 // ============================================================
 
-const STORAGE_GROQ = "jarvis_groq_key";
+const STORAGE_XAI = "jarvis_xai_key";
 const STORAGE_YOUTUBE = "jarvis_youtube_key";
 const STORAGE_CSE_ID = "jarvis_cse_id"; // ID moteur Google (images) — optionnel
 
-/** Retourne la clé Groq stockée, ou null. */
-export function getGroqKey() {
-  return localStorage.getItem(STORAGE_GROQ);
+/** Retourne la clé xAI (Grok) stockée, ou null. */
+export function getXaiKey() {
+  return localStorage.getItem(STORAGE_XAI);
 }
 
 /** Retourne la clé YouTube stockée, ou null. */
@@ -25,12 +27,12 @@ export function getCseId() {
 
 /** Vrai si les deux clés obligatoires sont présentes (le cx est optionnel). */
 export function hasKeys() {
-  return Boolean(getGroqKey() && getYouTubeKey());
+  return Boolean(getXaiKey() && getYouTubeKey());
 }
 
 /** Enregistre les clés (après trim). Le cx peut être vide. */
-export function saveKeys(groqKey, youtubeKey, cseId) {
-  localStorage.setItem(STORAGE_GROQ, groqKey.trim());
+export function saveKeys(xaiKey, youtubeKey, cseId) {
+  localStorage.setItem(STORAGE_XAI, xaiKey.trim());
   localStorage.setItem(STORAGE_YOUTUBE, youtubeKey.trim());
   if (cseId && cseId.trim()) {
     localStorage.setItem(STORAGE_CSE_ID, cseId.trim());
@@ -45,18 +47,18 @@ export function saveKeys(groqKey, youtubeKey, cseId) {
 
 const overlay = document.getElementById("config-overlay");
 const msgBox = document.getElementById("config-msg");
-const inputGroq = document.getElementById("key-groq");
+const inputXai = document.getElementById("key-xai");
 const inputYouTube = document.getElementById("key-youtube");
 const inputCseId = document.getElementById("key-cse");
 const saveBtn = document.getElementById("config-save");
 
 /**
  * Affiche l'écran de configuration.
- * @param {string} [message] Message d'erreur optionnel (ex: "Clé Groq invalide")
+ * @param {string} [message] Message d'erreur optionnel (ex: "Clé xAI invalide")
  */
 export function showConfig(message) {
   // Pré-remplit avec les clés existantes pour permettre la correction
-  inputGroq.value = getGroqKey() || "";
+  inputXai.value = getXaiKey() || "";
   inputYouTube.value = getYouTubeKey() || "";
   inputCseId.value = getCseId() || "";
 
@@ -89,18 +91,18 @@ export function initConfigUI(onSaved) {
   });
 
   saveBtn.addEventListener("click", () => {
-    const g = inputGroq.value.trim();
+    const x = inputXai.value.trim();
     const y = inputYouTube.value.trim();
     const cx = inputCseId.value.trim();
 
-    // Validation minimale : Groq et YouTube obligatoires, cx optionnel
-    if (!g || !y) {
-      msgBox.textContent = "Les clés Groq et YouTube sont requises.";
+    // Validation minimale : xAI et YouTube obligatoires, cx optionnel
+    if (!x || !y) {
+      msgBox.textContent = "Les clés xAI (Grok) et YouTube sont requises.";
       msgBox.classList.remove("hidden");
       return;
     }
 
-    saveKeys(g, y, cx);
+    saveKeys(x, y, cx);
     hideConfig();
     onSaved();
   });

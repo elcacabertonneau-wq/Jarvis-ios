@@ -4,7 +4,7 @@
 // La caméra est demandée avec facingMode: "user" (frontale).
 // captureFrame() dessine la frame courante du <video> sur un
 // <canvas> et retourne le JPEG encodé en base64 (sans préfixe
-// data:), prêt pour un contenu image_url (format OpenAI/Groq).
+// data:), prêt pour un contenu image_url (format OpenAI/xAI).
 // ============================================================
 
 const video = document.getElementById("camera");

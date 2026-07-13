@@ -7,14 +7,14 @@
 //   thinking  → transcription + appel du modèle (rotation)
 //   speaking  → lecture de la réponse (ondes)
 //
-// Flux : appui long sur l'orbe → enregistrement → relâche →
-// Groq Whisper → texte → modèle Groq (avec outils) → affichage + voix.
+// Flux : appui long sur l'orbe → dictée native (Web Speech API) →
+// relâche → texte → Grok/xAI (avec outils) → affichage + voix.
 // ============================================================
 
 import { hasKeys, showConfig, initConfigUI } from "./config.js";
-import { startRecording, stopRecording, audioExtension, unlockSpeech, speak, stopSpeaking } from "./audio.js";
+import { startDictation, stopDictation, lastDictationError, unlockSpeech, speak, stopSpeaking } from "./audio.js";
 import { startCamera } from "./vision.js";
-import { transcribe, askAssistant, ApiError } from "./api.js";
+import { askAssistant, ApiError } from "./api.js";
 import { initMusic, unlockPlayer, duckVolume, restoreVolume } from "./music.js";
 
 // --- Éléments du DOM ---
@@ -121,7 +121,12 @@ function showError(message) {
 function handleApiError(err) {
   if (err instanceof ApiError && err.status === 401) {
     // Clé invalide → réaffiche l'écran de config avec un message clair
-    showConfig("Clé Groq invalide. Vérifiez-la puis réessayez.");
+    showConfig("Clé xAI (Grok) invalide. Vérifiez-la puis réessayez.");
+    return;
+  }
+  if (err instanceof ApiError && err.provider === "xai" && err.status === 403) {
+    // Clé valide mais compte sans crédits (cas fréquent chez xAI)
+    showError("Compte xAI sans crédits : ajoutez des crédits sur console.x.ai puis réessayez.");
     return;
   }
   showError(err.message || "Erreur inconnue.");
@@ -131,33 +136,26 @@ function handleApiError(err) {
 // Cœur du flux : un tour de conversation complet
 // ------------------------------------------------------------
 
-async function processTurn(audioBlob) {
+async function processTurn(userText) {
   setState("thinking");
 
   try {
-    // 1. Audio → texte (Groq Whisper)
-    const userText = await transcribe(audioBlob, audioExtension());
-    if (!userText) {
-      showError("Je n'ai rien entendu. Parlez plus près du micro.");
-      setState("idle");
-      return;
-    }
     addMessage("user", userText);
 
-    // 2. Texte + historique → modèle Groq (boucle d'outils générique dans api.js)
+    // Texte + historique → Grok/xAI (boucle d'outils générique dans api.js)
     const reply = await askAssistant(history, userText, (toolName) => {
       statusText.textContent = "OUTIL : " + toolName.toUpperCase();
     });
 
-    // 3. Mise à jour de l'historique (texte simple : les tours d'outils
-    //    intermédiaires restent internes au tour courant)
+    // Mise à jour de l'historique (texte simple : les tours d'outils
+    // intermédiaires restent internes au tour courant)
     history.push({ role: "user", content: userText });
     history.push({ role: "assistant", content: reply || "..." });
 
     // Limite l'historique aux 20 derniers tours pour contenir les coûts
     if (history.length > 40) history = history.slice(-40);
 
-    // 4. Affichage + lecture vocale.
+    // Affichage + lecture vocale.
     // La musique est baissée à 20 % pendant que JARVIS parle.
     const finalReply = reply || "Je n'ai pas de réponse, Monsieur.";
     addMessage("jarvis", finalReply);
@@ -211,10 +209,11 @@ async function onPressStart(ev) {
 
   pressing = true;
   try {
-    await startRecording();
-    // L'utilisateur a peut-être déjà relâché pendant la demande de permission
+    // Démarre la dictée native (doit être appelé dans le geste utilisateur)
+    await startDictation();
+    // L'utilisateur a peut-être déjà relâché pendant le démarrage
     if (!pressing) {
-      await stopRecording();
+      await stopDictation();
       return;
     }
     setState("listening");
@@ -232,15 +231,22 @@ async function onPressEnd(ev) {
 
   if (state !== "listening") return;
 
-  const blob = await stopRecording();
-  if (!blob || blob.size < 1000) {
-    // Enregistrement trop court pour contenir de la parole
-    showError("Enregistrement trop court. Maintenez le bouton en parlant.");
+  const userText = await stopDictation();
+
+  // Une erreur de dictée (micro refusé, réseau...) prime sur le silence
+  const dictErr = lastDictationError();
+  if (dictErr) {
+    showError(dictErr);
+    setState("idle");
+    return;
+  }
+  if (!userText) {
+    showError("Je n'ai rien entendu. Maintenez le bouton en parlant.");
     setState("idle");
     return;
   }
 
-  await processTurn(blob);
+  await processTurn(userText);
 }
 
 talkBtn.addEventListener("pointerdown", onPressStart);

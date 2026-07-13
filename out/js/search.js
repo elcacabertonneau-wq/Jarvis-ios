@@ -1,9 +1,10 @@
 // ============================================================
 // search.js — Recherche internet + recherche d'images (100 % front)
 //
-// - Recherche internet : via les modèles "Compound" de Groq, qui
-//   effectuent la recherche web CÔTÉ SERVEUR Groq. Même clé, même
-//   endpoint que le chat : AUCUNE clé supplémentaire.
+// - Recherche internet : via la "Live Search" de xAI — le paramètre
+//   search_parameters de l'endpoint chat fait chercher Grok sur le
+//   web CÔTÉ SERVEUR xAI. Même clé que le cerveau : AUCUNE clé
+//   supplémentaire.
 // - Recherche d'images : Google Custom Search API (searchType=image).
 //   Réutilise la clé Google déjà créée pour YouTube (il suffit
 //   d'activer "Custom Search API" dans le même projet) + un ID de
@@ -11,13 +12,13 @@
 //   Fonctionnalité OPTIONNELLE : sans cx, l'outil explique quoi faire.
 // ============================================================
 
-import { getGroqKey, getYouTubeKey, getCseId } from "./config.js";
+import { getXaiKey, getYouTubeKey, getCseId } from "./config.js";
 
-const GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions";
+const XAI_CHAT_URL = "https://api.x.ai/v1/chat/completions";
 const CSE_URL = "https://www.googleapis.com/customsearch/v1";
-// Modèle agentique Groq avec recherche web intégrée (exécutée côté Groq).
-// "groq/compound" est plus puissant mais plus lent que la version mini.
-const SEARCH_MODEL = "groq/compound-mini";
+// Modèle utilisé pour la recherche : rapide et économique suffit,
+// c'est la recherche web qui fait le travail.
+const SEARCH_MODEL = "grok-4-fast-non-reasoning";
 const SEARCH_TIMEOUT_MS = 60000; // la recherche web peut prendre du temps
 
 // ------------------------------------------------------------
@@ -25,8 +26,8 @@ const SEARCH_TIMEOUT_MS = 60000; // la recherche web peut prendre du temps
 // ------------------------------------------------------------
 
 /**
- * Pose une question nécessitant le web au modèle Compound de Groq.
- * Le modèle cherche lui-même sur internet et synthétise la réponse.
+ * Pose une question nécessitant le web à Grok avec la Live Search
+ * activée : xAI cherche sur internet côté serveur et synthétise.
  * @param {string} question
  * @returns {Promise<string>} réponse factuelle courte, avec sources
  */
@@ -36,16 +37,19 @@ export async function webSearch(question) {
 
   let response;
   try {
-    response = await fetch(GROQ_CHAT_URL, {
+    response = await fetch(XAI_CHAT_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: "Bearer " + getGroqKey(),
+        Authorization: "Bearer " + getXaiKey(),
       },
       body: JSON.stringify({
         model: SEARCH_MODEL,
-        // NB : les modèles Compound n'acceptent pas d'outils personnalisés,
-        // ils utilisent leurs propres outils serveur (web search).
+        // Live Search xAI : mode "on" force la recherche web serveur
+        search_parameters: {
+          mode: "on",
+          return_citations: true,
+        },
         messages: [
           {
             role: "system",

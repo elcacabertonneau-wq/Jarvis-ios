@@ -2,13 +2,13 @@
 
 Assistant vocal style Iron Man, entièrement côté navigateur : **aucun backend, aucune fonction serverless**. Déployable en statique sur Netlify et pensé pour **Safari sur iPad** (portrait).
 
-- 🎙️ **Voix → texte** : Groq Whisper (`whisper-large-v3`, français)
-- 🧠 **Cerveau** : Groq (Llama 4 Scout, tool use + vision), appels directs depuis le navigateur — **une seule clé pour la voix et l'intelligence**
+- 🎙️ **Voix → texte** : dictée native du navigateur (Web Speech API — reconnaissance Siri sur iPad), gratuite, sans clé
+- 🧠 **Cerveau** : Grok (xAI, `grok-4-fast`, tool use + vision), appels directs depuis le navigateur
 - 🗣️ **Texte → voix** : `speechSynthesis` (voix fr-FR native)
 - 👁️ **Vision** : outil `regarder_camera` (tool use) — le modèle décrit ce que voit la caméra frontale
 - 🎵 **Musique** : YouTube (API IFrame + Data API v3) — « mets du Nekfeu », pause, suivant...
 - 📺 **Vidéo** : « montre la vidéo » affiche le clip en grand panneau HUD (réductible)
-- 🌐 **Recherche internet** : via Groq Compound (recherche web côté serveur Groq, aucune clé en plus)
+- 🌐 **Recherche internet** : Live Search de xAI (recherche web côté serveur xAI, aucune clé en plus)
 - 🖼️ **Images** : « montre-moi des photos de... » affiche une grille d'images dans le fil (Google Custom Search, optionnel)
 
 ---
@@ -17,7 +17,7 @@ Assistant vocal style Iron Man, entièrement côté navigateur : **aucun backend
 
 > **Ne commitez JAMAIS une clé API dans ce dépôt.** Ni dans le code, ni dans un fichier de config, ni dans un commit "temporaire". Une clé poussée sur GitHub doit être considérée comme compromise et révoquée immédiatement.
 
-Les clés sont saisies **au premier lancement** dans l'écran de configuration de l'app et stockées **uniquement dans le `localStorage` de votre navigateur**. Elles ne transitent que vers les API Groq et YouTube.
+Les clés sont saisies **au premier lancement** dans l'écran de configuration de l'app et stockées **uniquement dans le `localStorage` de votre navigateur**. Elles ne transitent que vers les API xAI et Google/YouTube.
 
 Conséquence assumée du "zéro backend" : toute personne ayant accès physique à votre iPad (ou à sa session Safari) peut lire ces clés. Utilisez des clés dédiées avec des limites de dépense, et révoquez-les au moindre doute.
 
@@ -27,7 +27,7 @@ Conséquence assumée du "zéro backend" : toute personne ayant accès physique 
 
 | Clé | Où la créer | Remarques |
 |---|---|---|
-| `GROQ_API_KEY` | [console.groq.com/keys](https://console.groq.com/keys) | Format `gsk_...`. Sert à la fois pour Whisper (voix → texte) et le modèle (Llama 4 Scout). Palier gratuit disponible. |
+| `XAI_API_KEY` (Grok) | [console.x.ai](https://console.x.ai/) → API Keys → Create API key | Format `xai-...`. ⚠️ Le compte doit avoir des crédits (Billing), sinon erreur 403. |
 | `YOUTUBE_API_KEY` | [console.cloud.google.com](https://console.cloud.google.com/) → créer un projet → activer **YouTube Data API v3** → Identifiants → Clé API | Format `AIza...`. Quota gratuit : 10 000 unités/jour (une recherche = 100 unités). |
 | ID moteur Google *(optionnel, pour les images)* | 1. Dans le même projet Google Cloud, activer aussi **Custom Search API**. 2. Sur [programmablesearchengine.google.com](https://programmablesearchengine.google.com/) : créer un moteur, choisir **Rechercher sur l'ensemble du Web** et activer **Recherche d'images**. 3. Copier l'**ID du moteur** (`cx`). | La même clé `AIza...` sert pour YouTube et les images. 100 requêtes/jour gratuites. Sans cet ID, tout fonctionne sauf `chercher_images`. |
 
@@ -61,7 +61,7 @@ Le site est 100 % statique : aucun build, aucune variable d'environnement à con
 ## Utilisation sur iPad (Safari)
 
 1. Ouvrez l'URL Netlify dans Safari
-2. Au premier lancement, saisissez vos deux clés API (Groq et YouTube) (icône 👁️ pour vérifier la saisie), puis **INITIALISER**
+2. Au premier lancement, saisissez vos deux clés API (xAI et YouTube) (icône 👁️ pour vérifier la saisie), puis **INITIALISER**
 3. **Maintenez l'orbe central** pour parler, **relâchez** pour envoyer
 4. Autorisez le micro et la caméra quand Safari le demande
 5. Astuce : **Partager → Sur l'écran d'accueil** pour une expérience plein écran
@@ -71,7 +71,7 @@ L'icône ⚙️ en haut à droite rouvre la configuration à tout moment. En cas
 ### Contraintes iOS respectées
 
 - **Pas de wake word** (impossible sur iOS Safari) → bouton "push-to-talk" (appui long)
-- **`audio/mp4`** pour MediaRecorder (seul format Safari iOS), testé via `isTypeSupported()` avec fallback `webm` pour les autres navigateurs
+- **Dictée native** (`webkitSpeechRecognition`, iOS 14.5+) démarrée dans le geste utilisateur — c'est la reconnaissance Siri, elle nécessite une connexion internet
 - **`speechSynthesis` débloqué** par une utterance vide jouée au tout premier tap
 - **Caméra frontale** (`facingMode: "user"`), refus de permission géré proprement (la vision est alors désactivée, le reste fonctionne)
 
@@ -84,10 +84,11 @@ index.html        # Structure de la page (HUD)
 css/style.css     # Style Iron Man : fond #050508, cyan #00d4ff, Space Mono
 js/app.js         # Boucle principale + machine à états (idle/listening/thinking/speaking)
 js/config.js      # Gestion des clés API (localStorage) + écran de config
-js/audio.js       # MediaRecorder (micro) + speechSynthesis (voix)
+js/audio.js       # Dictée (Web Speech API) + speechSynthesis (voix)
+js/search.js      # Recherche internet (Live Search xAI) + images (Google CSE)
 js/vision.js      # Webcam + capture de frame (canvas → JPEG base64)
 js/music.js       # Player YouTube caché + recherche + barre de lecture
-js/api.js         # Appels directs Groq (Whisper + chat/outils), registre d'outils
+js/api.js         # Appels directs xAI/Grok (chat + outils), registre d'outils
 ```
 
 ## Musique YouTube
@@ -105,7 +106,7 @@ Trois outils sont exposés au modèle (registre dans `js/api.js`, logique dans `
 
 | Outil | Exemple de phrase | Effet |
 |---|---|---|
-| `recherche_internet(question)` | « Quel temps fera-t-il demain à Paris ? » | Le modèle Compound de Groq cherche sur le web côté serveur et renvoie une réponse sourcée — aucune clé supplémentaire |
+| `recherche_internet(question)` | « Quel temps fera-t-il demain à Paris ? » | La Live Search de xAI fait chercher Grok sur le web côté serveur et renvoie une réponse sourcée — aucune clé supplémentaire |
 | `chercher_images(recherche)` | « Montre-moi des photos d'aurores boréales » | Google Custom Search (images) → grille de 4 miniatures dans le fil de conversation. Nécessite l'ID moteur Google (optionnel) |
 
 Comportements :

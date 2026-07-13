@@ -1,11 +1,12 @@
 // ============================================================
-// api.js — Appels directs à l'API Groq (transcription + chat)
+// api.js — Appels directs à l'API xAI (Grok), 100 % front-end
 //
-// Tout se fait depuis le navigateur, sans backend, avec UNE SEULE
-// clé API : Groq sert à la fois pour :
-//  - Whisper (audio → texte)
-//  - le LLM (chat + outils + vision), via l'endpoint compatible
-//    OpenAI de Groq (/openai/v1/chat/completions)
+// Le cerveau de JARVIS est Grok, via l'endpoint compatible OpenAI
+// de xAI (https://api.x.ai/v1/chat/completions). CORS ouvert :
+// l'appel direct depuis le navigateur fonctionne sans backend.
+//
+// La voix → texte est gérée par la dictée native du navigateur
+// (voir audio.js) : aucune API de transcription nécessaire.
 //
 // Architecture des outils :
 //  - TOOLS est la liste déclarative (nom, description, input_schema),
@@ -16,15 +17,16 @@
 //    handler via registerTool(). Rien d'autre à toucher.
 // ============================================================
 
-import { getGroqKey } from "./config.js";
+import { getXaiKey } from "./config.js";
 import { captureFrame } from "./vision.js";
 import { playSearch, controlPlayback, getNowPlaying, showVideo, hideVideo } from "./music.js";
 import { webSearch, imageSearch } from "./search.js";
 
-const CHAT_URL = "https://api.groq.com/openai/v1/chat/completions";
-const GROQ_STT_URL = "https://api.groq.com/openai/v1/audio/transcriptions";
-// Llama 4 Scout : supporte le tool use ET la vision (images) sur Groq.
-const CHAT_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct";
+const CHAT_URL = "https://api.x.ai/v1/chat/completions";
+// Grok 4 Fast (non-raisonnement) : multimodal (vision), tool use,
+// rapide et économique — idéal pour un assistant vocal.
+// Changez ici pour "grok-4" (plus puissant, plus lent) si besoin.
+const CHAT_MODEL = "grok-4-fast-non-reasoning";
 const API_TIMEOUT_MS = 45000;
 
 // Prompt système : JARVIS, réponses très courtes (c'est de la voix)
@@ -49,7 +51,7 @@ export class ApiError extends Error {
   /**
    * @param {string} message
    * @param {number} status Code HTTP (0 = réseau/timeout)
-   * @param {"groq"|"youtube"} provider
+   * @param {"xai"|"youtube"} provider
    */
   constructor(message, status, provider) {
     super(message);
@@ -75,42 +77,6 @@ async function fetchWithTimeout(url, options, provider) {
   } finally {
     clearTimeout(timer);
   }
-}
-
-// ------------------------------------------------------------
-// Groq Whisper : audio → texte
-// ------------------------------------------------------------
-
-/**
- * Transcrit un blob audio en texte via Whisper (Groq).
- * @param {Blob} audioBlob
- * @param {string} extension Extension du fichier ("mp4", "webm"...)
- * @returns {Promise<string>} texte transcrit (peut être vide)
- */
-export async function transcribe(audioBlob, extension) {
-  const form = new FormData();
-  form.append("file", audioBlob, "audio." + extension);
-  form.append("model", "whisper-large-v3");
-  form.append("language", "fr");
-  form.append("response_format", "json");
-
-  const response = await fetchWithTimeout(
-    GROQ_STT_URL,
-    {
-      method: "POST",
-      headers: { Authorization: "Bearer " + getGroqKey() },
-      body: form, // ne PAS fixer Content-Type : le navigateur gère le boundary
-    },
-    "groq"
-  );
-
-  if (!response.ok) {
-    const detail = await response.text().catch(() => "");
-    throw new ApiError("Erreur Groq " + response.status + " : " + detail.slice(0, 200), response.status, "groq");
-  }
-
-  const data = await response.json();
-  return (data.text || "").trim();
 }
 
 // ------------------------------------------------------------
@@ -234,8 +200,8 @@ export const TOOLS = [
   // 2. Enregistrer le handler avec registerTool("nom", fn) ci-dessous.
 ];
 
-/** Conversion vers le format d'outils OpenAI attendu par Groq. */
-function toolsForGroq() {
+/** Conversion vers le format d'outils OpenAI attendu par xAI. */
+function toolsForApi() {
   return TOOLS.map((tool) => ({
     type: "function",
     function: {
@@ -290,7 +256,7 @@ registerTool("afficher_video", async (input) => {
   return input.action === "masquer" ? hideVideo() : showVideo();
 });
 
-// --- Recherche internet : déléguée au modèle Compound de Groq ---
+// --- Recherche internet : Live Search de xAI (voir search.js) ---
 registerTool("recherche_internet", async (input) => {
   return webSearch(input.question || "");
 });
@@ -329,38 +295,39 @@ async function runTool(name, args) {
 }
 
 // ------------------------------------------------------------
-// Groq chat : boucle de conversation avec gestion générique
+// Chat xAI : boucle de conversation avec gestion générique
 // des tool_calls (format OpenAI)
 // ------------------------------------------------------------
 
-/** Un appel brut à l'endpoint chat/completions de Groq. */
-async function callGroqChat(messages) {
+/** Un appel brut à l'endpoint chat/completions de xAI. */
+async function callChat(messages) {
   const response = await fetchWithTimeout(
     CHAT_URL,
     {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: "Bearer " + getGroqKey(),
+        Authorization: "Bearer " + getXaiKey(),
       },
       body: JSON.stringify({
         model: CHAT_MODEL,
         max_tokens: 1024,
         temperature: 0.6,
-        tools: toolsForGroq(),
+        tools: toolsForApi(),
         messages,
       }),
     },
-    "groq"
+    "xai"
   );
 
   if (!response.ok) {
     let detail = "";
     try {
       const errJson = await response.json();
-      detail = errJson?.error?.message || "";
+      detail = errJson?.error?.message || errJson?.error || errJson?.msg || "";
+      if (typeof detail !== "string") detail = JSON.stringify(detail);
     } catch { /* corps non-JSON, tant pis */ }
-    throw new ApiError("Erreur Groq " + response.status + (detail ? " : " + detail : ""), response.status, "groq");
+    throw new ApiError("Erreur xAI " + response.status + (detail ? " : " + detail.slice(0, 200) : ""), response.status, "xai");
   }
 
   return response.json();
@@ -371,7 +338,7 @@ async function callGroqChat(messages) {
  * boucle de tool_calls jusqu'à obtenir une réponse texte finale.
  *
  * @param {Array} history Historique [{role, content}] des tours précédents
- * @param {string} userText Message utilisateur transcrit
+ * @param {string} userText Message utilisateur (dicté)
  * @param {(label: string) => void} [onToolUse] Rappel UI quand un outil tourne
  * @returns {Promise<string>} texte final de la réponse de JARVIS
  */
@@ -386,7 +353,7 @@ export async function askAssistant(history, userText, onToolUse) {
   const MAX_TOOL_ROUNDS = 5; // garde-fou contre les boucles infinies
   let rounds = 0;
 
-  let data = await callGroqChat(messages);
+  let data = await callChat(messages);
   let message = data.choices?.[0]?.message || {};
 
   // Boucle générique : tant que le modèle demande des outils, on les exécute
@@ -432,7 +399,7 @@ export async function askAssistant(history, userText, onToolUse) {
       });
     }
 
-    data = await callGroqChat(messages);
+    data = await callChat(messages);
     message = data.choices?.[0]?.message || {};
   }
 
