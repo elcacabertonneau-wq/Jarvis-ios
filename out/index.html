@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#050508">
+  <title>JARVIS</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- ===== En-tête HUD ===== -->
+  <header class="hud-header">
+    <div class="hud-title">
+      <span class="hud-dot"></span>
+      J.A.R.V.I.S
+    </div>
+    <div class="hud-status" id="status-text">EN ATTENTE</div>
+    <button class="gear-btn" id="gear-btn" aria-label="Configuration" title="Configuration">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6">
+        <circle cx="12" cy="12" r="3.2"/>
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.09a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.09a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.09a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+      </svg>
+    </button>
+  </header>
+
+  <!-- ===== Flux vidéo (coin, style viseur) ===== -->
+  <div class="video-frame" id="video-frame">
+    <video id="camera" autoplay playsinline muted></video>
+    <span class="corner tl"></span>
+    <span class="corner tr"></span>
+    <span class="corner bl"></span>
+    <span class="corner br"></span>
+    <div class="video-label">CAM 01</div>
+  </div>
+
+  <!-- ===== Historique de conversation ===== -->
+  <main class="conversation" id="conversation" aria-live="polite"></main>
+
+  <!-- ===== Bandeau d'erreur ===== -->
+  <div class="error-banner hidden" id="error-banner" role="alert"></div>
+
+  <!-- ===== Bouton central (appui long = parler) ===== -->
+  <footer class="controls">
+    <div class="orb-wrap">
+      <div class="orb-ring ring-1"></div>
+      <div class="orb-ring ring-2"></div>
+      <button class="orb" id="talk-btn" aria-label="Maintenir pour parler">
+        <span class="orb-core"></span>
+        <span class="orb-waves">
+          <i></i><i></i><i></i><i></i><i></i>
+        </span>
+      </button>
+    </div>
+    <div class="orb-hint" id="orb-hint">MAINTENIR POUR PARLER</div>
+  </footer>
+
+  <!-- ===== Écran de configuration (clés API) ===== -->
+  <div class="config-overlay hidden" id="config-overlay">
+    <div class="config-panel">
+      <div class="config-title">
+        <span class="hud-dot"></span> CONFIGURATION SYSTÈME
+      </div>
+      <p class="config-sub">Les clés sont stockées uniquement dans ce navigateur (localStorage). Ne les partagez jamais.</p>
+      <div class="config-msg hidden" id="config-msg"></div>
+
+      <label class="config-label" for="key-anthropic">ANTHROPIC_API_KEY</label>
+      <div class="key-field">
+        <input type="password" id="key-anthropic" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="sk-ant-...">
+        <button class="eye-btn" data-target="key-anthropic" aria-label="Afficher/masquer la clé">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6">
+            <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/>
+          </svg>
+        </button>
+      </div>
+
+      <label class="config-label" for="key-groq">GROQ_API_KEY</label>
+      <div class="key-field">
+        <input type="password" id="key-groq" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="gsk_...">
+        <button class="eye-btn" data-target="key-groq" aria-label="Afficher/masquer la clé">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6">
+            <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/>
+          </svg>
+        </button>
+      </div>
+
+      <button class="config-save" id="config-save">INITIALISER</button>
+    </div>
+  </div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
