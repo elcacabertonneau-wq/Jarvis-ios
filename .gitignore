@@ -1,0 +1,27 @@
+# ============================================
+# JARVIS — .gitignore
+# RAPPEL : ne JAMAIS commit de clé API.
+# ============================================
+
+# Fichiers d'environnement / secrets (au cas où)
+.env
+.env.*
+*.key
+secrets.*
+
+# Système
+.DS_Store
+Thumbs.db
+
+# Éditeurs
+.vscode/
+.idea/
+
+# Dépendances éventuelles
+node_modules/
+
+# Artefacts Xcode (projet iOS présent dans ce dépôt)
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
