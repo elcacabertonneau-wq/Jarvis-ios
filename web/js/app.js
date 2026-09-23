@@ -1,7 +1,7 @@
 // Orchestrateur de Jarvis : relie la voix, l'IA, les commandes locales et l'affichage.
 import { settings, saveSettings, defaults } from './settings.js';
 import { Voice, chime } from './voice.js';
-import { think, see, canSee, studyNotes, mindmapFor, arSceneFor, arSceneFromImage, memory, activeProviderLabel } from './brain.js';
+import { think, see, explainError, canSee, studyNotes, mindmapFor, arSceneFor, arSceneFromImage, memory, activeProviderLabel } from './brain.js';
 import * as ar from './ar.js';
 import * as draw from './draw.js';
 import * as facts from './facts.js';
@@ -571,7 +571,9 @@ const ACTIONS = {
     } catch (e) {
       console.warn(e);
       draw.setBusy(false);
-      return "Je n'ai pas réussi à analyser votre dessin. Vérifiez qu'une clé Groq ou Gemini est configurée.";
+      draw.caption(`Échec : ${explainError(e)}`);
+      ui.errorCard(`Analyse du dessin impossible — ${explainError(e)}`);
+      return "Je n'ai pas réussi à analyser votre dessin. Le détail est affiché à l'écran.";
     }
   },
 
@@ -690,7 +692,8 @@ const ACTIONS = {
     } catch (e) {
       camera.setScanning(false);
       console.warn(e);
-      return "Je n'ai pas réussi à analyser l'image. Vérifiez qu'une clé Groq ou Gemini est bien configurée.";
+      ui.errorCard(`Analyse d'image impossible — ${explainError(e)}`);
+      return "Je n'ai pas réussi à analyser l'image. Le détail est affiché à l'écran.";
     }
   },
 };

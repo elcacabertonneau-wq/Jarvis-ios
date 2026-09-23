@@ -124,18 +124,72 @@ async function gemini(messages, { json = true, maxTokens = 3000 } = {}) {
     role: m.role === 'assistant' ? 'model' : 'user',
     parts: [{ text: m.content }],
   }));
-  const model = settings.geminiModel || 'gemini-2.5-flash';
-  const data = await fetchJSON(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${settings.geminiKey}`, {
-    method: 'POST',
-    timeout: 40000,
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      systemInstruction: system ? { parts: [{ text: system }] } : undefined,
-      contents,
-      generationConfig: { temperature: 0.6, maxOutputTokens: maxTokens, ...(json ? { responseMimeType: 'application/json' } : {}) },
-    }),
-  });
-  return data.candidates?.[0]?.content?.parts?.map((p) => p.text).join('') || '';
+  return geminiCall(contents, system, { json, maxTokens, temperature: 0.6 });
+}
+
+// ---------- Modèles disponibles (les fournisseurs arrêtent régulièrement des modèles) ----------
+// Modèles d'images arrêtés chez Groq : ignorés même s'ils sont encore enregistrés dans les réglages.
+const DEAD_MODELS = /llama-4-(scout|maverick)|llama-3\.2-\d+b-vision|llava|gemini-(1\.|2\.0)/i;
+const listCache = new Map();
+function cachedList(key, fn) {
+  if (!listCache.has(key)) listCache.set(key, fn().catch(() => { listCache.delete(key); return []; }));
+  return listCache.get(key);
+}
+const groqModelIds = () => cachedList(`groq:${settings.groqKey}`, async () => {
+  const d = await fetchJSON('https://api.groq.com/openai/v1/models', { timeout: 8000, headers: { Authorization: `Bearer ${settings.groqKey}` } });
+  return (d.data || []).filter((m) => m.active !== false).map((m) => m.id);
+});
+async function groqVisionModels() {
+  const ids = await groqModelIds();
+  // Modèles probablement capables de voir, d'après leur nom (le catalogue ne l'indique pas).
+  const guess = ids.filter((id) => /qwen|vl\b|-vl-|vision|gemma|kimi|pixtral|llama-4/i.test(id) && !/guard|whisper|orpheus|tts|coder|safeguard/i.test(id))
+    .sort((x, y) => y.localeCompare(x, 'en', { numeric: true }));
+  return [...new Set([settings.groqVisionModel, 'qwen/qwen3.8-27b', ...guess])]
+    .filter((m) => m && !DEAD_MODELS.test(m) && (!ids.length || ids.includes(m)));
+}
+const geminiModelIds = () => cachedList(`gemini:${settings.geminiKey}`, async () => {
+  const d = await fetchJSON(`https://generativelanguage.googleapis.com/v1beta/models?pageSize=200&key=${settings.geminiKey}`, { timeout: 8000 });
+  return (d.models || [])
+    .filter((m) => (m.supportedGenerationMethods || []).includes('generateContent'))
+    .map((m) => String(m.name).replace(/^models\//, ''))
+    .filter((id) => /^gemini-\d+(\.\d+)?-(flash|pro)/.test(id) && !/image|tts|audio|live|embedding|exp|preview-\d{2}-\d{2}|thinking/.test(id));
+});
+async function geminiModels() {
+  const ids = await geminiModelIds();
+  const ver = (id) => parseFloat(id.match(/gemini-(\d+(?:\.\d+)?)/)?.[1] || 0);
+  // Les « flash » d'abord (rapides, quota gratuit), du plus récent au plus ancien.
+  const ranked = ids.slice().sort((x, y) => (/flash/.test(y) - /flash/.test(x)) || (/lite/.test(x) - /lite/.test(y)) || ver(y) - ver(x));
+  return [...new Set([settings.geminiModel, ...ranked, 'gemini-2.5-flash'])]
+    .filter((m) => m && !DEAD_MODELS.test(m) && (!ids.length || ids.includes(m))).slice(0, 4);
+}
+// Erreur qui justifie d'essayer le modèle suivant (modèle arrêté, surchargé ou sans réponse).
+const tryNext = (e) => !e.status || [400, 404, 408, 429, 500, 502, 503, 504].includes(e.status);
+
+async function geminiCall(contents, system, { json = true, maxTokens = 3000, temperature = 0.6 } = {}) {
+  let err = new Error('Aucun modèle Gemini disponible');
+  for (const model of await geminiModels()) {
+    try {
+      const data = await fetchJSON(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${settings.geminiKey}`, {
+        method: 'POST',
+        timeout: 45000,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          systemInstruction: system ? { parts: [{ text: system }] } : undefined,
+          contents,
+          // Marge large : les modèles récents « réfléchissent » avant de répondre et consomment ce budget.
+          generationConfig: { temperature, maxOutputTokens: Math.max(8192, maxTokens), ...(json ? { responseMimeType: 'application/json' } : {}) },
+        }),
+      });
+      const text = data.candidates?.[0]?.content?.parts?.filter((x) => !x.thought).map((x) => x.text).join('') || '';
+      if (text.trim()) return text;
+      err = new Error(`Réponse vide (${data.candidates?.[0]?.finishReason || 'inconnue'})`);
+    } catch (e) {
+      err = e;
+      console.warn(`[Jarvis] Gemini ${model} :`, e.message, e.detail || '');
+      if (!tryNext(e)) break;
+    }
+  }
+  throw err;
 }
 
 async function pollinations(messages, { json = true } = {}) {
@@ -258,24 +312,29 @@ const dataParts = (dataUrl) => {
 };
 
 async function groqVision(messages, image) {
-  const models = [...new Set([settings.groqVisionModel, 'meta-llama/llama-4-scout-17b-16e-instruct', 'meta-llama/llama-4-maverick-17b-128e-instruct'].filter(Boolean))];
   const last = messages[messages.length - 1];
   const withImage = [...messages.slice(0, -1), { role: 'user', content: [
     { type: 'text', text: last.content },
     { type: 'image_url', image_url: { url: image.dataUrl || image.url } },
   ] }];
-  let err;
-  for (const model of models) {
+  let err = new Error('Aucun modèle Groq capable de voir');
+  for (const model of await groqVisionModels()) {
     for (const json of [true, false]) {
       try {
         const data = await fetchJSON('https://api.groq.com/openai/v1/chat/completions', {
           method: 'POST',
           timeout: 45000,
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${settings.groqKey}` },
-          body: JSON.stringify({ model, messages: withImage, temperature: 0.4, max_tokens: 3000, ...(json ? { response_format: { type: 'json_object' } } : {}) }),
+          body: JSON.stringify({ model, messages: withImage, temperature: 0.4, max_tokens: 4000, ...(json ? { response_format: { type: 'json_object' } } : {}) }),
         });
-        return data.choices[0].message.content;
-      } catch (e) { err = e; if (!/HTTP (400|404)/.test(e.message)) throw e; }
+        const text = data.choices?.[0]?.message?.content || '';
+        if (text.trim()) return text.replace(/<think>[\s\S]*?<\/think>/g, '');
+      } catch (e) {
+        err = e;
+        console.warn(`[Jarvis] vision Groq ${model} :`, e.message, e.detail || '');
+        if (!tryNext(e)) throw e;
+        if (e.status !== 400) break; // 400 : peut-être le mode JSON, on réessaie sans ; sinon modèle suivant
+      }
     }
   }
   throw err;
@@ -290,18 +349,7 @@ async function geminiVision(messages, image) {
     role: m.role === 'assistant' ? 'model' : 'user',
     parts: i === turns.length - 1 ? [{ inline_data: { mime_type: p.mime, data: p.b64 } }, { text: m.content }] : [{ text: m.content }],
   }));
-  const model = settings.geminiModel || 'gemini-2.5-flash';
-  const data = await fetchJSON(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${settings.geminiKey}`, {
-    method: 'POST',
-    timeout: 45000,
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      systemInstruction: system ? { parts: [{ text: system }] } : undefined,
-      contents,
-      generationConfig: { temperature: 0.4, maxOutputTokens: 3000, responseMimeType: 'application/json' },
-    }),
-  });
-  return data.candidates?.[0]?.content?.parts?.map((x) => x.text).join('') || '';
+  return geminiCall(contents, system, { json: true, maxTokens: 8192, temperature: 0.4 });
 }
 
 async function claudeVision(messages, image) {
@@ -352,24 +400,37 @@ export async function see(userText, image, ctx = {}) {
     ...memory.history,
     { role: 'user', content: userText },
   ];
-  let lastErr = new Error('Aucune IA capable de voir n’est configurée.');
+  const failures = [];
   for (const name of order) {
     const p = VISION[name];
     if (!p.ok(image)) continue;
     try {
       const raw = await p.fn(messages, image);
-      if (!raw?.trim()) continue;
+      if (!raw?.trim()) { failures.push(`${VISION_LABEL[name]} : réponse vide`); continue; }
       const reply = parseReply(raw);
       reply.actions = reply.actions.filter((a) => a?.type !== 'look');
       memory.push('user', `[image : ${source}] ${userText}`);
       memory.push('assistant', JSON.stringify({ speech: reply.speech, actions: reply.actions.map((a) => (a?.type === 'table' ? { type: 'table', title: a.title } : a)) }));
       return reply;
     } catch (e) {
-      lastErr = e;
-      console.warn(`[Jarvis] vision ${name} a échoué :`, e.message);
+      failures.push(`${VISION_LABEL[name]} : ${explainError(e)}`);
+      console.warn(`[Jarvis] vision ${name} a échoué :`, e.message, e.detail || '');
     }
   }
-  throw lastErr;
+  throw new Error(failures.length ? failures.join(' · ') : 'aucune IA capable de voir n’est configurée (clé Groq ou Gemini gratuite)');
+}
+
+const VISION_LABEL = { gemini: 'Gemini', groq: 'Groq', claude: 'Claude' };
+// Raison lisible d'un échec d'appel à une IA.
+export function explainError(e) {
+  const st = e?.status;
+  if (st === 401 || st === 403) return 'clé refusée (vérifiez-la dans les réglages)';
+  if (st === 429) return 'quota gratuit atteint, réessayez dans une minute';
+  if (st === 413) return 'image trop lourde';
+  if (st === 400 || st === 404) return `modèle indisponible${e.detail ? ` (${e.detail.slice(0, 90)})` : ''}`;
+  if (st >= 500) return 'service momentanément surchargé';
+  if (e?.name === 'AbortError') return 'délai dépassé';
+  return e?.message || 'erreur inconnue';
 }
 
 // Génère une carte mentale structurée sur un sujet.

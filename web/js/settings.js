@@ -5,7 +5,7 @@ export const defaults = {
   provider: 'auto',
   groqKey: '',
   groqModel: 'llama-3.3-70b-versatile',
-  groqVisionModel: 'meta-llama/llama-4-scout-17b-16e-instruct',
+  groqVisionModel: 'qwen/qwen3.8-27b',
   geminiKey: '',
   geminiModel: 'gemini-2.5-flash',
   claudeKey: '',
