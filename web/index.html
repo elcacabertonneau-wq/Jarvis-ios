@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>J.A.R.V.I.S.</title>
+  <meta name="description" content="Assistant vocal personnel : voix, images, vidéos, musique et étude de sujets.">
+  <meta name="theme-color" content="#05080f">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Jarvis">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Rajdhani:wght@500;600;700&display=swap">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="backdrop" aria-hidden="true">
+    <span class="blob b1"></span><span class="blob b2"></span><span class="blob b3"></span>
+    <div class="bg-grid"></div>
+    <div class="grain"></div>
+  </div>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-dot"></span>
+      <span class="brand-name">J.A.R.V.I.S.</span>
+    </div>
+    <div class="status"><span class="status-dot" aria-hidden="true"></span><span id="status">Initialisation</span></div>
+    <div class="top-actions">
+      <button class="icon-btn" id="btn-wake" title="Écoute permanente (mot-clé « Jarvis »)" aria-pressed="false">
+        <svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 0 0-9 9v4a3 3 0 0 0 3 3h1v-7H5a7 7 0 0 1 14 0h-2v7h1a3 3 0 0 0 3-3v-4a9 9 0 0 0-9-9z"/></svg>
+      </button>
+      <button class="icon-btn" id="btn-mute" title="Voix de Jarvis activée" aria-pressed="false">
+        <svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9H4zm12.5 3a4.5 4.5 0 0 0-2.5-4v8a4.5 4.5 0 0 0 2.5-4z"/></svg>
+      </button>
+      <button class="icon-btn" id="btn-clear" title="Effacer l'écran">
+        <svg viewBox="0 0 24 24"><path d="M6 7h12l-1 13H7L6 7zm3-3h6l1 2H8l1-2z"/></svg>
+      </button>
+      <button class="icon-btn" id="btn-settings" title="Réglages">
+        <svg viewBox="0 0 24 24"><path d="M19.4 13a7.5 7.5 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.6 7.6 0 0 0-1.7-1L15 3h-4l-.4 2.9a7.6 7.6 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.5 7.5 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1c.5.4 1.1.7 1.7 1L11 21h4l.4-2.9c.6-.3 1.2-.6 1.7-1l2.5 1 2-3.5-2.2-1.6zM13 15.5A3.5 3.5 0 1 1 13 8.5a3.5 3.5 0 0 1 0 7z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="left">
+      <button class="orb" id="orb" data-state="idle" aria-label="Parler à Jarvis">
+        <svg class="hud" viewBox="0 0 200 200" aria-hidden="true">
+          <circle class="h-ticks" cx="100" cy="100" r="95"/>
+          <circle class="h-arc" cx="100" cy="100" r="86"/>
+          <circle class="h-arc2" cx="100" cy="100" r="86"/>
+          <circle class="h-ring" cx="100" cy="100" r="77"/>
+          <circle class="h-dash" cx="100" cy="100" r="68"/>
+        </svg>
+        <span class="glow"></span>
+        <span class="core"></span>
+      </button>
+      <p class="orb-label" id="orb-label">En veille</p>
+      <div class="live" id="live" aria-live="polite"></div>
+      <div class="log" id="log" aria-live="polite"></div>
+    </section>
+
+    <section class="stage" id="stage" aria-label="Écran de Jarvis">
+      <div class="welcome" id="stage-empty">
+        <p class="eyebrow" id="welcome-date"></p>
+        <h1 class="clock" id="welcome-clock">--:--</h1>
+        <p class="lead" id="welcome-lead">Dites « Jarvis » suivi de votre demande, ou écrivez en bas.</p>
+        <div class="suggest">
+          <button type="button" data-cmd="Montre-moi des images de la Tour Eiffel"><span class="s-ico">🖼️</span><span><strong>Images</strong><small>« Montre-moi la tour Eiffel »</small></span></button>
+          <button type="button" data-cmd="Lance une vidéo sur les trous noirs"><span class="s-ico">🎬</span><span><strong>Vidéos</strong><small>« Vidéo sur les trous noirs »</small></span></button>
+          <button type="button" data-cmd="Mets de la musique jazz"><span class="s-ico">🎵</span><span><strong>Musique</strong><small>« Mets du jazz »</small></span></button>
+          <button type="button" data-cmd="Étudie la photosynthèse"><span class="s-ico">📚</span><span><strong>Étudier</strong><small>« Étudie la photosynthèse »</small></span></button>
+          <button type="button" data-cmd="Génère une image d'un dragon cyberpunk"><span class="s-ico">✨</span><span><strong>Créer</strong><small>« Dessine un dragon »</small></span></button>
+          <button type="button" data-cmd="Quel temps fait-il à Paris ?"><span class="s-ico">🌍</span><span><strong>Météo</strong><small>« Quel temps à Paris ? »</small></span></button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div class="dock" id="dock" hidden>
+    <div class="dock-info">
+      <span class="dock-art" aria-hidden="true"><span class="eq"><i></i><i></i><i></i><i></i></span></span>
+      <div class="dock-text">
+        <strong id="dock-title">—</strong>
+        <small id="dock-sub"></small>
+      </div>
+    </div>
+    <div class="dock-ctrl">
+      <button class="icon-btn" id="dock-prev" title="Précédent"><svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg></button>
+      <button class="icon-btn" id="dock-toggle" title="Pause"><svg viewBox="0 0 24 24"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg></button>
+      <button class="icon-btn" id="dock-next" title="Suivant"><svg viewBox="0 0 24 24"><path d="M16 6h2v12h-2zm-10 12 8.5-6L6 6z"/></svg></button>
+      <input type="range" id="dock-volume" min="0" max="100" value="70" aria-label="Volume">
+      <button class="icon-btn" id="dock-close" title="Arrêter"><svg viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg></button>
+    </div>
+    <div class="dock-video" id="dock-video"></div>
+  </div>
+
+  <form class="composer" id="composer" autocomplete="off">
+    <button type="button" class="mic" id="mic" aria-label="Parler">
+      <svg viewBox="0 0 24 24"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.9V21h2v-2.1a7 7 0 0 0 6-6.9h-2z"/></svg>
+    </button>
+    <input id="input" type="text" placeholder="Demandez n'importe quoi à Jarvis…" enterkeyhint="send">
+    <kbd class="hint" title="Appuyez sur Espace pour parler">Espace</kbd>
+    <button type="submit" class="send" aria-label="Envoyer">
+      <svg viewBox="0 0 24 24"><path d="M3 20l18-8L3 4v6l12 2-12 2z"/></svg>
+    </button>
+  </form>
+
+  <dialog id="settings">
+    <form method="dialog" class="settings">
+      <h2>Réglages</h2>
+
+      <fieldset>
+        <legend>Cerveau (IA gratuite)</legend>
+        <label>Fournisseur
+          <select name="provider">
+            <option value="auto">Automatique (meilleur disponible)</option>
+            <option value="groq">Groq (le plus rapide)</option>
+            <option value="gemini">Google Gemini</option>
+            <option value="claude">Claude (clé API payante)</option>
+            <option value="pollinations">Pollinations (sans clé, peu fiable)</option>
+          </select>
+        </label>
+        <label>Clé API Groq <small>— gratuite sur <a href="https://console.groq.com/keys" target="_blank" rel="noopener">console.groq.com</a></small>
+          <input name="groqKey" type="password" placeholder="gsk_…" autocomplete="off">
+        </label>
+        <label>Modèle Groq
+          <input name="groqModel" type="text">
+        </label>
+        <label>Clé API Gemini <small>— gratuite sur <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com</a></small>
+          <input name="geminiKey" type="password" placeholder="AIza…" autocomplete="off">
+        </label>
+        <label>Modèle Gemini
+          <input name="geminiModel" type="text">
+        </label>
+        <label>Clé API Claude <small>— optionnelle, payante à l'usage sur <a href="https://console.anthropic.com" target="_blank" rel="noopener">console.anthropic.com</a> (l'abonnement claude.ai ne suffit pas)</small>
+          <input name="claudeKey" type="password" placeholder="sk-ant-…" autocomplete="off">
+        </label>
+        <label>Modèle Claude
+          <input name="claudeModel" type="text">
+        </label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Vidéos &amp; musique</legend>
+        <label>Clé YouTube Data API <small>(optionnelle, gratuite — recherche vidéo plus fiable)</small>
+          <input name="youtubeKey" type="password" placeholder="AIza…" autocomplete="off">
+        </label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Voix</legend>
+        <label>Langue
+          <select name="lang">
+            <option value="fr-FR">Français (France)</option>
+            <option value="fr-CA">Français (Canada)</option>
+            <option value="fr-BE">Français (Belgique)</option>
+            <option value="en-US">English (US)</option>
+          </select>
+        </label>
+        <label>Mot d'activation
+          <input name="wakeName" type="text">
+        </label>
+        <label>Voix de Jarvis
+          <select name="voiceURI"></select>
+        </label>
+        <div class="row">
+          <label>Vitesse <input name="rate" type="range" min="0.6" max="1.6" step="0.05"></label>
+          <label>Hauteur <input name="pitch" type="range" min="0.5" max="1.5" step="0.05"></label>
+        </div>
+        <button type="button" class="ghost" id="test-voice">Tester la voix</button>
+      </fieldset>
+
+      <fieldset>
+        <legend>Mémoire</legend>
+        <button type="button" class="ghost danger" id="forget">Effacer l'historique de conversation</button>
+      </fieldset>
+
+      <div class="settings-actions">
+        <button value="cancel" class="ghost">Annuler</button>
+        <button value="save" class="primary" id="save-settings">Enregistrer</button>
+      </div>
+      <p class="fine">Les clés restent uniquement sur cet appareil (stockage local du navigateur).</p>
+    </form>
+  </dialog>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
