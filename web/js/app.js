@@ -305,7 +305,7 @@ function showWikiCard(w) {
 // Carte d'accueil : obtenir une clé Groq gratuite (sans carte bancaire) en 1 minute.
 function showOnboarding() {
   if (document.getElementById('onboard')) return;
-  const input = el('input', { type: 'password', placeholder: 'Collez votre clé gsk_…', style: 'flex:1;min-width:0;background:#050a14;border:1px solid var(--line);border-radius:8px;color:var(--text);padding:9px 10px;font-size:15px' });
+  const input = el('input', { type: 'password', class: 'field', placeholder: 'Collez votre clé gsk_…' });
   const body = el('div', { class: 'md' },
     el('p', {}, "Les commandes d'images, vidéos, musique, météo et minuteur marchent déjà sans rien configurer. Pour que je puisse converser et rédiger des fiches d'étude, donnez-moi un cerveau gratuit :"),
     el('ol', {},
@@ -368,7 +368,7 @@ function bindUI() {
     $('input').value = '';
     handle(v);
   };
-  document.querySelectorAll('.examples li').forEach((li) => { li.onclick = () => { firstGesture(); handle(li.dataset.cmd); }; });
+  document.querySelectorAll('.suggest [data-cmd]').forEach((b) => { b.onclick = () => { firstGesture(); handle(b.dataset.cmd); }; });
 
   $('btn-wake').onclick = () => {
     firstGesture();
@@ -448,8 +448,22 @@ function openSettings() {
   dlg.showModal();
 }
 
+// Horloge de l'écran d'accueil (s'arrête dès que l'accueil disparaît).
+function startClock() {
+  const tick = () => {
+    const clock = $('welcome-clock');
+    if (!clock) return clearInterval(iv);
+    const now = new Date();
+    clock.textContent = now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+    $('welcome-date').textContent = now.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+  };
+  const iv = setInterval(tick, 1000);
+  tick();
+}
+
 // ---------------- Démarrage ----------------
 function init() {
+  startClock();
   player.initPlayer();
   bindUI();
   updateMuteButton();

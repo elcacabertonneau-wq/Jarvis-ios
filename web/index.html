@@ -13,17 +13,24 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Rajdhani:wght@500;600;700&display=swap">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-  <div class="bg-grid" aria-hidden="true"></div>
+  <div class="backdrop" aria-hidden="true">
+    <span class="blob b1"></span><span class="blob b2"></span><span class="blob b3"></span>
+    <div class="bg-grid"></div>
+    <div class="grain"></div>
+  </div>
 
   <header class="topbar">
     <div class="brand">
       <span class="brand-dot"></span>
       <span class="brand-name">J.A.R.V.I.S.</span>
     </div>
-    <div class="status" id="status">Hors ligne</div>
+    <div class="status"><span class="status-dot" aria-hidden="true"></span><span id="status">Initialisation</span></div>
     <div class="top-actions">
       <button class="icon-btn" id="btn-wake" title="Écoute permanente (mot-clé « Jarvis »)" aria-pressed="false">
         <svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 0 0-9 9v4a3 3 0 0 0 3 3h1v-7H5a7 7 0 0 1 14 0h-2v7h1a3 3 0 0 0 3-3v-4a9 9 0 0 0-9-9z"/></svg>
@@ -43,34 +50,41 @@
   <main class="layout">
     <section class="left">
       <button class="orb" id="orb" data-state="idle" aria-label="Parler à Jarvis">
-        <span class="ring r1"></span>
-        <span class="ring r2"></span>
-        <span class="ring r3"></span>
+        <svg class="hud" viewBox="0 0 200 200" aria-hidden="true">
+          <circle class="h-ticks" cx="100" cy="100" r="95"/>
+          <circle class="h-arc" cx="100" cy="100" r="86"/>
+          <circle class="h-arc2" cx="100" cy="100" r="86"/>
+          <circle class="h-ring" cx="100" cy="100" r="77"/>
+          <circle class="h-dash" cx="100" cy="100" r="68"/>
+        </svg>
+        <span class="glow"></span>
         <span class="core"></span>
       </button>
+      <p class="orb-label" id="orb-label">En veille</p>
       <div class="live" id="live" aria-live="polite"></div>
       <div class="log" id="log" aria-live="polite"></div>
     </section>
 
     <section class="stage" id="stage" aria-label="Écran de Jarvis">
-      <div class="stage-empty" id="stage-empty">
-        <h2>Bonjour, je suis Jarvis.</h2>
-        <p>Touchez le cercle et parlez, ou écrivez en bas. Exemples :</p>
-        <ul class="examples">
-          <li data-cmd="Montre-moi des images de la Tour Eiffel">« Montre-moi des images de la Tour Eiffel »</li>
-          <li data-cmd="Lance une vidéo sur les trous noirs">« Lance une vidéo sur les trous noirs »</li>
-          <li data-cmd="Mets de la musique jazz">« Mets de la musique jazz »</li>
-          <li data-cmd="Étudie la photosynthèse">« Étudie la photosynthèse »</li>
-          <li data-cmd="Génère une image d'un dragon cyberpunk">« Génère une image d'un dragon cyberpunk »</li>
-          <li data-cmd="Quel temps fait-il à Paris ?">« Quel temps fait-il à Paris ? »</li>
-        </ul>
+      <div class="welcome" id="stage-empty">
+        <p class="eyebrow" id="welcome-date"></p>
+        <h1 class="clock" id="welcome-clock">--:--</h1>
+        <p class="lead" id="welcome-lead">Dites « Jarvis » suivi de votre demande, ou écrivez en bas.</p>
+        <div class="suggest">
+          <button type="button" data-cmd="Montre-moi des images de la Tour Eiffel"><span class="s-ico">🖼️</span><span><strong>Images</strong><small>« Montre-moi la tour Eiffel »</small></span></button>
+          <button type="button" data-cmd="Lance une vidéo sur les trous noirs"><span class="s-ico">🎬</span><span><strong>Vidéos</strong><small>« Vidéo sur les trous noirs »</small></span></button>
+          <button type="button" data-cmd="Mets de la musique jazz"><span class="s-ico">🎵</span><span><strong>Musique</strong><small>« Mets du jazz »</small></span></button>
+          <button type="button" data-cmd="Étudie la photosynthèse"><span class="s-ico">📚</span><span><strong>Étudier</strong><small>« Étudie la photosynthèse »</small></span></button>
+          <button type="button" data-cmd="Génère une image d'un dragon cyberpunk"><span class="s-ico">✨</span><span><strong>Créer</strong><small>« Dessine un dragon »</small></span></button>
+          <button type="button" data-cmd="Quel temps fait-il à Paris ?"><span class="s-ico">🌍</span><span><strong>Météo</strong><small>« Quel temps à Paris ? »</small></span></button>
+        </div>
       </div>
     </section>
   </main>
 
   <div class="dock" id="dock" hidden>
     <div class="dock-info">
-      <span class="eq" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+      <span class="dock-art" aria-hidden="true"><span class="eq"><i></i><i></i><i></i><i></i></span></span>
       <div class="dock-text">
         <strong id="dock-title">—</strong>
         <small id="dock-sub"></small>
@@ -90,7 +104,8 @@
     <button type="button" class="mic" id="mic" aria-label="Parler">
       <svg viewBox="0 0 24 24"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.9V21h2v-2.1a7 7 0 0 0 6-6.9h-2z"/></svg>
     </button>
-    <input id="input" type="text" placeholder="Parlez ou écrivez à Jarvis…" enterkeyhint="send">
+    <input id="input" type="text" placeholder="Demandez n'importe quoi à Jarvis…" enterkeyhint="send">
+    <kbd class="hint" title="Appuyez sur Espace pour parler">Espace</kbd>
     <button type="submit" class="send" aria-label="Envoyer">
       <svg viewBox="0 0 24 24"><path d="M3 20l18-8L3 4v6l12 2-12 2z"/></svg>
     </button>

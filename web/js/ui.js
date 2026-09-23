@@ -32,7 +32,14 @@ export function animateOut(node, cls, done) {
 }
 
 export function setStatus(text) { $('status').textContent = text; }
-export function setOrb(state) { $('orb').dataset.state = state; $('mic').classList.toggle('active', state === 'listening'); }
+const ORB_LABELS = { idle: 'En veille', wake: 'À l\'écoute de « Jarvis »', listening: 'Je vous écoute…', thinking: 'Réflexion…', speaking: 'Jarvis parle' };
+export function setOrb(state) {
+  $('orb').dataset.state = state;
+  document.body.dataset.state = state;
+  const label = $('orb-label');
+  if (label) label.textContent = ORB_LABELS[state] || '';
+  $('mic').classList.toggle('active', state === 'listening');
+}
 export function setLive(text, cls = '') { const l = $('live'); l.textContent = text; l.className = `live ${cls}`; }
 
 export function log(role, text) {
@@ -86,7 +93,7 @@ export function errorCard(msg) {
 
 export function gallery(items, onOpen) {
   return el('div', { class: 'gallery' }, items.map((it, i) =>
-    el('figure', { onclick: () => onOpen(i) },
+    el('figure', { onclick: () => onOpen(i), style: `--i:${Math.min(i, 7)}` },
       el('img', { src: it.thumb, alt: it.title || '', loading: 'lazy', referrerpolicy: 'no-referrer', onerror: (e) => e.target.closest('figure')?.remove() }),
       it.title ? el('figcaption', {}, it.title) : null)));
 }
