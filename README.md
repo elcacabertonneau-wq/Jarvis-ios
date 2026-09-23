@@ -32,6 +32,22 @@ Demandez un récap, un comparatif, un classement ou un planning (« fais-moi un 
 
 Pour changer le contenu (« ajoute une colonne prix »), Jarvis passe par l'IA, qui reçoit le tableau affiché. Toute carte (images, vidéo, fiche…) peut aussi s'afficher en grand avec le bouton ⤢ ou en disant « agrandis ».
 
+### Placer les éléments à l'écran
+Dites où vous voulez chaque élément : « fais des recherches sur les trous noirs et place un récap à droite, une photo à gauche et une vidéo en bas ». L'écran devient un tableau de bord organisé (positions : gauche, droite, haut, bas, centre et les 4 coins). Une commande simple accepte aussi une position : « montre des photos de chats à gauche ».
+
+Ensuite, instantanément et sans IA :
+
+| Dites… | Effet |
+|---|---|
+| « Mets la vidéo à gauche », « déplace le récap en haut à droite » | Déplace un élément (s'il y a déjà quelque chose à cet endroit, les deux s'échangent) |
+| « Échange la photo et la vidéo » | Inverse deux éléments |
+| « Remets tout normalement » | Revient à l'affichage empilé habituel |
+
+Sur téléphone, les éléments restent empilés (l'écran est trop petit pour une grille).
+
+### Parler longtemps
+Jarvis attend un vrai silence (environ 1,5 seconde) avant d'envoyer votre demande : vous pouvez faire de longues phrases avec des pauses. Pendant que vous parlez, le texte reconnu s'affiche sous le réacteur. Un appui sur le micro pendant l'écoute envoie tout de suite ce qui a été dit.
+
 ### Plein écran
 Bouton ⛶ en haut à droite, touche **F**, ou « mets en plein écran » / « quitte le plein écran ». La touche Échap en sort aussi. En plein écran, le curseur de la souris disparaît après 3 secondes d'immobilité. Le navigateur n'autorise le plein écran qu'après un clic ou une touche : si la commande vocale est refusée, Jarvis vous demande d'appuyer sur F. Non disponible sur iPhone (limite de Safari).
 
@@ -92,7 +108,7 @@ web/
 ├── js/brain.js           IA (Groq / Gemini / Claude / Pollinations), mémoire de conversation
 ├── js/services.js        Images, Wikipédia, YouTube, radio, météo
 ├── js/player.js          Lecteur radio et YouTube
-├── js/ui.js              Cartes, galerie, visionneuse
+├── js/ui.js              Cartes, disposition libre, affichage en grand, galerie, visionneuse
 ├── js/markdown.js        Rendu Markdown sécurisé
 ├── sw.js                 Service worker (hors ligne)
 └── manifest.webmanifest  Installation comme application

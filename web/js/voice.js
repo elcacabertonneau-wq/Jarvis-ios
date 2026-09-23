@@ -35,6 +35,11 @@ export function findWake(text) {
   return null;
 }
 
+// Fin de phrase : silence après le dernier mot reconnu (plus long si le dernier segment n'est pas finalisé).
+const SILENCE_MS = 1500;
+const SILENCE_PENDING_MS = 2500;
+const MAX_CAPTURE_MS = 60000;
+
 let audioCtx;
 export function chime(up = true) {
   try {
@@ -67,6 +72,14 @@ export class Voice {
     this.speaking = false;
     this.running = false;
     this.captureTimer = null;
+    this.silenceTimer = null;
+    this.maxTimer = null;
+    this.capStart = null;
+    this.carry = '';
+    this.capText = '';
+    this.stripWake = false;
+    this.ignoreBefore = -1;
+    this.lastLen = 0;
     this.restartTimer = null;
     this.failures = 0;
     this.voices = [];
@@ -102,6 +115,10 @@ export class Voice {
     };
     rec.onend = () => {
       this.running = false;
+      // Le navigateur a relancé sa session au milieu d'une phrase : on garde ce qui a déjà été dit.
+      this.ignoreBefore = -1; // nouvelle session : la numérotation des segments repart de zéro
+      this.lastLen = 0;
+      if (this.capturing) { this.carry = this.capText || this.carry; this.capStart = 0; this.stripWake = false; }
       this._emitState();
       if (this.speaking) return;
       // En écoute permanente, on relance indéfiniment (avec un délai croissant en cas d'erreurs répétées).
@@ -131,44 +148,46 @@ export class Voice {
     return this.onState('idle');
   }
 
+  // La phrase est reconstituée à partir de TOUS les segments reçus depuis le début de l'écoute,
+  // et n'est envoyée qu'après un vrai silence : une longue phrase avec des pauses n'est plus coupée.
   _onResult(e) {
-    let interim = '';
-    let final = '';
-    for (let i = e.resultIndex; i < e.results.length; i++) {
-      const r = e.results[i];
-      if (r.isFinal) final += r[0].transcript;
-      else interim += r[0].transcript;
-    }
-    if (interim) {
-      if (this.capturing) this.onInterim(interim);
-      else if (this.wakeEnabled && findWake(interim)) {
-        // Réagit dès que le mot d'activation est entendu, sans attendre la fin de phrase.
-        if (!this._wakeHeard) { this._wakeHeard = true; chime(true); this.onState('listening'); }
-        this.onInterim(interim);
-      }
-    }
-    if (!final.trim()) return;
-    this._wakeHeard = false;
-    const text = final.trim();
-
-    if (this.capturing) {
-      const w = findWake(text);
-      const cmd = w && w.index === 0 ? (w.rest || '') : text;
-      this._endCapture();
-      if (cmd) this._emitCommand(cmd);
-      return;
-    }
-
-    if (this.wakeEnabled) {
-      const w = findWake(text);
-      if (!w) { this.onInterim(''); return; }
-      if (w.rest.length > 2) {
-        this._emitCommand(w.rest);
-      } else {
+    const results = e.results;
+    this.lastLen = results.length;
+    if (!this.capturing) {
+      if (!this.wakeEnabled) return;
+      // Les segments déjà utilisés pour une commande ne doivent pas la redéclencher.
+      for (let i = Math.max(e.resultIndex, this.ignoreBefore + 1); i < results.length; i++) {
+        if (!findWake(results[i][0].transcript)) continue;
         chime(true);
-        this._beginCapture(8000);
+        this._beginCapture({ fromIndex: i, stripWake: true });
+        break;
       }
+      if (!this.capturing) return;
     }
+    // Écoute démarrée sans mot d'activation : on part du premier segment NOUVEAU
+    // (un ancien segment finalisé en retard ne doit pas être repris).
+    if (this.capStart === null) this.capStart = Math.max(e.resultIndex, this.ignoreBefore + 1);
+    if (results.length <= this.capStart) return;
+
+    let text = '';
+    let pending = false; // un segment n'est pas encore définitif
+    for (let i = this.capStart; i < results.length; i++) {
+      text += ` ${results[i][0].transcript}`;
+      if (!results[i].isFinal) pending = true;
+    }
+    text = text.replace(/\s+/g, ' ').trim();
+    // Retire « Jarvis » quand il ouvre la phrase (ou quand l'écoute a démarré grâce à lui).
+    const w = findWake(text);
+    if (w && (this.stripWake || w.index <= 1)) text = w.rest;
+    const full = `${this.carry} ${text}`.replace(/\s+/g, ' ').trim();
+    this.capText = full;
+    this.onInterim(full);
+    if (!full) return;
+
+    // On a entendu quelque chose : on attend désormais la fin de la phrase (silence).
+    clearTimeout(this.captureTimer);
+    clearTimeout(this.silenceTimer);
+    this.silenceTimer = setTimeout(() => this._finishCapture(), pending ? SILENCE_PENDING_MS : SILENCE_MS);
   }
 
   _emitCommand(cmd) {
@@ -176,21 +195,36 @@ export class Voice {
     this.onCommand(cmd.trim());
   }
 
-  _beginCapture(ms = 8000) {
+  // Démarre la capture d'une commande. `wait` : délai max si l'utilisateur ne dit rien.
+  _beginCapture({ fromIndex = null, stripWake = false, wait = 8000 } = {}) {
     this.capturing = true;
+    this.capStart = fromIndex;
+    this.stripWake = stripWake;
+    this.carry = '';
+    this.capText = '';
     this._emitState();
     clearTimeout(this.captureTimer);
-    this.captureTimer = setTimeout(() => {
-      if (!this.capturing) return;
-      this._endCapture();
-      if (!this.wakeEnabled) this._stop();
-    }, ms);
+    clearTimeout(this.silenceTimer);
+    clearTimeout(this.maxTimer);
+    this.captureTimer = setTimeout(() => this._finishCapture(), wait);
+    this.maxTimer = setTimeout(() => this._finishCapture(), MAX_CAPTURE_MS);
     this._start();
+  }
+
+  _finishCapture() {
+    if (!this.capturing) return;
+    const cmd = (this.capText || '').trim();
+    this._endCapture();
+    if (cmd.length > 1) this._emitCommand(cmd);
+    else if (!this.wakeEnabled) this._stop();
   }
 
   _endCapture() {
     this.capturing = false;
+    this.ignoreBefore = (this.lastLen || 0) - 1;
     clearTimeout(this.captureTimer);
+    clearTimeout(this.silenceTimer);
+    clearTimeout(this.maxTimer);
     this.onInterim('');
     this._emitState();
   }
@@ -216,16 +250,18 @@ export class Voice {
   listenOnce() {
     if (!this.supported) return false;
     if (this.speaking) this.stopSpeaking();
-    if (this.capturing) { this._endCapture(); if (!this.wakeEnabled) this._stop(); return true; }
+    // Appui pendant l'écoute : on envoie ce qui a été dit, ou on relance l'écoute si rien n'a encore été dit.
+    if (this.capturing && this.capText) { this._finishCapture(); return true; }
+    if (this.capturing) { chime(true); clearTimeout(this.captureTimer); this.captureTimer = setTimeout(() => this._finishCapture(), 10000); return true; }
     chime(true);
-    this._beginCapture(10000);
+    this._beginCapture({ wait: 10000 });
     return true;
   }
 
   // Après une réponse vocale, laisse quelques secondes pour enchaîner sans redire « Jarvis ».
   followUp(ms = 6000) {
     if (!this.supported || !this.wakeEnabled) return;
-    this._beginCapture(ms);
+    this._beginCapture({ wait: ms });
   }
 
   pickVoice() {

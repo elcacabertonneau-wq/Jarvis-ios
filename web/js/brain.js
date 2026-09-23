@@ -33,10 +33,11 @@ Tu contrôles une interface avec un écran et des lecteurs multimédia. Tu répo
   "speech": "ce que tu dis à voix haute : 1 à 3 phrases courtes, naturelles, sans markdown ni émoji",
   "display": "contenu Markdown à afficher à l'écran (listes, tableaux, titres, code…) ou chaîne vide si inutile",
   "title": "titre court de la carte affichée (optionnel)",
+  "display_place": "position de la carte de texte (optionnel, voir positions)",
   "actions": [ ... ]
 }
 Actions disponibles (0, 1 ou plusieurs) :
-- {"type":"images","query":"..."} : chercher et afficher de vraies photos (mets la requête en anglais si c'est plus pertinent)
+- {"type":"images","query":"...","count":1} : chercher et afficher de vraies photos (count 1 = une seule grande photo ; sans count = galerie). Requête en anglais si plus pertinent
 - {"type":"generate_image","prompt":"description détaillée en anglais"} : créer une image par IA
 - {"type":"video","query":"..."} : chercher et lancer une vidéo YouTube
 - {"type":"music","query":"artiste, titre ou genre"} : jouer de la musique (un genre → radio, un titre/artiste → YouTube)
@@ -49,6 +50,12 @@ Actions disponibles (0, 1 ou plusieurs) :
 - {"type":"table_update","layout":"table|cards|list|compare","sort":{"column":"nom de colonne","order":"asc|desc"},"highlight":"colonne ou ligne","hide":["colonne"],"show_all":true,"transpose":true,"expand":true|false,"close":true} : modifier la disposition du tableau affiché (ne mets que les champs utiles)
 - {"type":"clear"} : effacer l'écran et revenir à l'accueil
 - {"type":"fullscreen","on":true|false} : passer l'application en plein écran ou en sortir
+- {"type":"text","title":"...","content":"Markdown","place":"..."} : une carte de texte supplémentaire (explication, résumé rédigé…)
+- {"type":"move","target":"photo|images|video|recap|fiche|meteo|minuteur|texte","place":"..."} : déplacer un élément déjà affiché
+- {"type":"swap","a":"...","b":"..."} : échanger la position de deux éléments affichés
+- {"type":"layout_reset"} : remettre l'affichage normal (sans positions)
+
+Disposition de l'écran : toute action qui affiche quelque chose (images, generate_image, video, study, weather, timer, table, text) accepte "place" parmi : left, right, top, bottom, center, top-left, top-right, bottom-left, bottom-right. Quand l'utilisateur précise où mettre les éléments (« récap à droite, photo à gauche, vidéo en bas »), crée UNE action par élément avec sa "place". Une « photo » = images avec count 1. Un « récap » = table (ou text si ce n'est pas tabulaire). Sans indication de position, n'ajoute pas "place".
 
 Règles :
 - Si la demande nécessite une action, déclenche-la plutôt que de décrire ce que tu ferais.
@@ -192,12 +199,13 @@ export function parseReply(raw) {
         speech: String(obj.speech || obj.say || ''),
         display: String(obj.display || ''),
         title: String(obj.title || ''),
+        place: String(obj.display_place || ''),
         actions: Array.isArray(obj.actions) ? obj.actions : [],
       };
     } catch { /* texte libre */ }
   }
   const short = text.length > 280 ? `${text.split(/(?<=[.!?])\s/).slice(0, 2).join(' ')}` : text;
-  return { speech: short, display: text.length > 280 ? text : '', title: '', actions: [] };
+  return { speech: short, display: text.length > 280 ? text : '', title: '', place: '', actions: [] };
 }
 
 export async function think(userText, ctx = {}) {

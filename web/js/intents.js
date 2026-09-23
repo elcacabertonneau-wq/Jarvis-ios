@@ -73,8 +73,52 @@ const RULES = [
     }],
 ];
 
+// ---------- Positions à l'écran ----------
+const PLACE_WORDS = [
+  [/en haut (?:à|a) gauche|en haut gauche|coin sup[ée]rieur gauche/, 'top-left'],
+  [/en haut (?:à|a) droite|en haut droite|coin sup[ée]rieur droit/, 'top-right'],
+  [/en bas (?:à|a) gauche|en bas gauche|coin inf[ée]rieur gauche/, 'bottom-left'],
+  [/en bas (?:à|a) droite|en bas droite|coin inf[ée]rieur droit/, 'bottom-right'],
+  [/(?:à|a) gauche|sur la gauche|c[ôo]t[ée] gauche/, 'left'],
+  [/(?:à|a) droite|sur la droite|c[ôo]t[ée] droit/, 'right'],
+  [/en haut|au-dessus|en dessus/, 'top'],
+  [/en bas|en-dessous|en dessous/, 'bottom'],
+  [/au centre|au milieu|centr[ée]/, 'center'],
+];
+export function parsePlace(text = '') {
+  const t = text.toLowerCase();
+  for (const [re, p] of PLACE_WORDS) if (re.test(t)) return p;
+  return '';
+}
+// Retire « … à gauche (de l'écran) » en fin de commande et renvoie la position.
+const PLACE_SUFFIX = /[\s,]+(?:et\s+)?(?:(?:place|mets?|affiche)[- ](?:la|le|les)\s+)?(?:en haut (?:à|a) (?:gauche|droite)|en bas (?:à|a) (?:gauche|droite)|(?:à|a) gauche|(?:à|a) droite|sur la (?:gauche|droite)|en haut|en bas|au centre|au milieu)(?: de l'[ée]cran)?$/i;
+function splitPlace(s) {
+  const m = s.match(PLACE_SUFFIX);
+  if (!m) return { s, place: '' };
+  return { s: s.slice(0, m.index).trim(), place: parsePlace(m[0]) };
+}
+
 export function matchIntent(input) {
-  const s = clean(input);
+  const full = clean(input);
+  if (!full) return null;
+
+  // Déplacer / échanger / remettre la disposition normale (sans IA).
+  let mv = full.match(/^(?:mets?|d[ée]place|place|bouge|passe|range|envoie|glisse)(?:[- ](?:moi|nous))?\s+(?:la |le |les |l'|l’|ma |mon |mes )?(photo|image|images|galerie|vid[ée]o|r[ée]cap(?:itulatif)?|tableau|r[ée]sum[ée]|fiche|[ée]tude|m[ée]t[ée]o|minuteur|texte|r[ée]ponse)s?\s+(.+)$/i);
+  if (mv && parsePlace(mv[2])) return { actions: [{ type: 'move', target: mv[1], place: parsePlace(mv[2]) }], speech: '' };
+  mv = full.match(/^(?:[ée]change|inverse|permute|intervertis)\s+(?:la |le |les |l'|l’)?(\S+)\s+et\s+(?:la |le |les |l'|l’)?(\S+)$/i);
+  if (mv && !/lignes?|colonnes?/i.test(full)) return { actions: [{ type: 'swap', a: mv[1], b: mv[2] }], speech: '' };
+  if (/^(?:remets?|reviens|retourne|repasse)\b.*\b(?:normale?s?|normalement|par d[ée]faut|habituelle?s?)$|^(?:annule|efface|enl[èe]ve|supprime) (?:la |les )?(?:disposition|positions?|placements?)$/i.test(full)) {
+    return { actions: [{ type: 'layout_reset' }], speech: '' };
+  }
+
+  // Une commande simple peut préciser où afficher le résultat : « montre des photos de chats à gauche ».
+  const { s, place } = splitPlace(full);
+  const r = matchSimple(s);
+  if (r && place) r.actions.forEach((a) => { if (['images', 'generate_image', 'video', 'study', 'weather', 'timer'].includes(a.type)) a.place = place; });
+  return r;
+}
+
+function matchSimple(s) {
   if (!s) return null;
   for (const [re, build, guard] of RULES) {
     if (guard && !guard(s)) continue;
@@ -104,6 +148,8 @@ export function matchTableIntent(input, { hasTable = false, canRestore = false }
     return null;
   }
   if (!hasTable) return null;
+  // « Mets le tableau à droite » est un déplacement, pas un changement de vue.
+  if (/\b(a gauche|a droite|en haut|en bas|au centre|au milieu|sur la gauche|sur la droite)\b/.test(s)) return null;
 
   if (/^(ferme|supprime|enleve|retire|efface|cache)( le| ce)? (tableau|recap|recapitulatif)$/.test(s)) return { close: true };
   if (/^(agrandis|agrandir|agrandi|zoome|en grand|affiche (le |la |ca |ce )?en grand|mets (le |la |ca |ce )?en grand|montre (le |la |ca |ce )?en grand|affiche le en grand)/.test(s) || /\ben grand\b/.test(s)) return { expand: true };
