@@ -34,6 +34,8 @@ export function initPlayer({ onStateChange } = {}) {
   $('dock-next').onclick = () => next();
   $('dock-prev').onclick = () => prev();
   $('dock-close').onclick = () => stop();
+  $('dock-min').onclick = () => minimizeDock();
+  $('tray-music').onclick = () => restoreDock();
   $('dock-volume').oninput = (e) => setVolume(e.target.value / 100);
   audio.addEventListener('error', () => { if (kind === 'radio' && audio.src && audio.src !== SILENCE) next(true); });
   audio.addEventListener('playing', () => { paused = false; render(); });
@@ -72,10 +74,23 @@ export function registerVideo(frame) {
 }
 export function unregisterVideo(frame) { videoFrames.delete(frame); }
 
+// Lecteur réduit : il continue de jouer, une pastille 🎵 dans la barre permet de le rouvrir.
+let mini = false;
+export function minimizeDock() { if (!kind) return false; mini = true; render(); return true; }
+export function restoreDock() { if (!mini) return false; mini = false; render(); return true; }
+export const isDockMini = () => mini;
+
 function render() {
   const dock = $('dock');
   const item = queue[index];
+  if (!kind) mini = false;
   dock.hidden = !kind;
+  dock.classList.toggle('mini', mini);
+  $('tray-music').hidden = !mini;
+  $('tray-music').classList.toggle('paused', paused);
+  $('tray-music-title').textContent = item ? (item.title || item.name) : 'Musique';
+  const tray = $('tray');
+  tray.hidden = !mini && !tray.querySelector('.tray-chip:not(.tray-music)');
   dock.classList.toggle('paused', paused);
   $('dock-toggle').innerHTML = paused
     ? '<svg viewBox="0 0 24 24"><path d="M7 5v14l12-7z"/></svg>'

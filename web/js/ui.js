@@ -53,19 +53,23 @@ export function log(role, text) {
 // ---------- Cartes ----------
 const ICON_CLOSE = '<svg viewBox="0 0 24 24"><path d="M6.4 5 5 6.4 10.6 12 5 17.6 6.4 19l5.6-5.6 5.6 5.6 1.4-1.4-5.6-5.6L19 6.4 17.6 5 12 10.6z"/></svg>';
 const ICON_EXPAND = '<svg viewBox="0 0 24 24"><path d="M4 4h6v2H6v4H4V4zm10 0h6v6h-2V6h-4V4zM4 14h2v4h4v2H4v-6zm14 0h2v6h-6v-2h4v-4z"/></svg>';
+const ICON_MINIMIZE = '<svg viewBox="0 0 24 24"><path d="M5 17h14v2H5z"/></svg>';
 const ICON_COLLAPSE = '<svg viewBox="0 0 24 24"><path d="M8 4h2v6H4V8h4V4zm6 0h2v4h4v2h-6V4zM4 14h6v6H8v-4H4v-2zm10 0h6v2h-4v4h-2v-6z"/></svg>';
 
 // Crée une carte sur l'écran. `actions` : éléments ajoutés dans l'en-tête ; `keep` : ne disparaît pas toute seule.
 export function card(title, body, { icon = '', actions = [], keep = false, place = '', kind = '' } = {}) {
+  const minBtn = el('button', { class: 'icon-btn card-min', title: 'Réduire dans la barre', 'aria-label': 'Réduire dans la barre', html: ICON_MINIMIZE });
   const expandBtn = el('button', { class: 'icon-btn card-expand', title: 'Afficher en grand', 'aria-label': 'Afficher en grand', html: ICON_EXPAND });
   const closeBtn = el('button', { class: 'icon-btn card-close', title: 'Fermer', 'aria-label': 'Fermer', html: ICON_CLOSE });
   const c = el('article', { class: 'card' },
-    el('div', { class: 'card-head' }, el('h3', {}, `${icon ? `${icon} ` : ''}${title || ''}`), ...actions, expandBtn, closeBtn),
+    el('div', { class: 'card-head' }, el('h3', {}, `${icon ? `${icon} ` : ''}${title || ''}`), ...actions, minBtn, expandBtn, closeBtn),
     body);
   if (keep) c.dataset.keep = '1';
   if (kind) c.dataset.kind = kind;
   const pos = normalizePlace(place);
   if (pos) c.dataset.place = pos;
+  c.dataset.icon = icon;
+  minBtn.onclick = () => minimizeCard(c);
   expandBtn.onclick = () => (expanded === c ? collapseCard() : expandCard(c));
   closeBtn.onclick = () => removeCard(c, true);
   $('stage-empty').hidden = true;
@@ -96,7 +100,7 @@ const COL_OF = (p) => (p.endsWith('left') ? 0 : p.endsWith('right') ? 2 : 1);
 
 export function layoutStage() {
   const st = stage();
-  const cards = [...st.querySelectorAll('.card:not(.leaving)')];
+  const cards = [...st.querySelectorAll('.card:not(.leaving):not(.minimized)')];
   const placed = cards.filter((c) => c.dataset.place);
   const active = placed.length > 0;
   st.classList.toggle('board', active);
@@ -163,7 +167,7 @@ export function setCardTitle(c, text) { const h = c.querySelector('.card-head h3
 
 // L'accueil réapparaît dès qu'il n'y a plus de carte.
 function updateWelcome() {
-  const empty = !stage().querySelector('.card:not(.leaving)');
+  const empty = !stage().querySelector('.card:not(.leaving):not(.minimized)');
   const w = $('stage-empty');
   if (empty && w.hidden) {
     w.hidden = false;
@@ -176,6 +180,8 @@ export function removeCard(c, animated = false) {
   if (!c?.isConnected) return;
   if (expanded === c) collapseCard();
   c.querySelectorAll('iframe').forEach((f) => unregisterVideo(f));
+  c._onRemove?.(); // ex. : couper la caméra
+  c._chip?.remove(); updateTray();
   const done = () => { c.remove(); updateWelcome(); layoutStage(); };
   if (animated) animateOut(c, 'leaving', done);
   else done();
@@ -188,7 +194,64 @@ export function clearStage({ auto = false } = {}) {
 }
 
 export const hasCards = () => !!stage().querySelector('.card:not(.leaving)');
-export const firstCard = () => stage().querySelector('.card:not(.leaving)');
+export const firstCard = () => stage().querySelector('.card:not(.leaving):not(.minimized)');
+
+// ---------- Réduire dans la barre (minimiser) ----------
+// La carte est masquée mais continue de vivre (vidéo, caméra, minuteur…) ; une pastille permet de la rouvrir.
+function updateTray() {
+  const tray = $('tray');
+  tray.hidden = !tray.querySelector('.tray-chip:not(.tray-music)') && !$('dock').classList.contains('mini');
+}
+
+export function minimizeCard(c) {
+  if (!c?.isConnected || c.classList.contains('minimized')) return false;
+  if (expanded === c) collapseCard();
+  c.classList.add('minimized');
+  const title = c.querySelector('.card-head h3')?.textContent || 'Élément';
+  c._chip = el('button', { class: 'tray-chip', type: 'button', title: `Rouvrir : ${title}`, onclick: () => restoreCard(c) },
+    el('span', { class: 'tray-dot', 'aria-hidden': 'true' }), title.length > 34 ? `${title.slice(0, 33)}…` : title);
+  $('tray').append(c._chip);
+  updateTray();
+  layoutStage();
+  updateWelcome();
+  return true;
+}
+
+export function restoreCard(c) {
+  if (!c?.classList.contains('minimized')) return false;
+  c.classList.remove('minimized');
+  c._chip?.remove();
+  c._chip = null;
+  $('stage-empty').hidden = true;
+  updateTray();
+  layoutStage();
+  return true;
+}
+
+const visibleCards = () => [...stage().querySelectorAll('.card:not(.leaving):not(.minimized)')];
+const minimizedCards = () => [...stage().querySelectorAll('.card.minimized:not(.leaving)')];
+
+export function minimizeAll() {
+  const list = visibleCards();
+  list.forEach(minimizeCard);
+  return list.length;
+}
+export function restoreAll() {
+  const list = minimizedCards();
+  list.forEach(restoreCard);
+  return list.length;
+}
+export function minimizeKind(kind) {
+  const kinds = String(kind).split('|');
+  const c = visibleCards().find((x) => kinds.includes(x.dataset.kind));
+  return c ? minimizeCard(c) : false;
+}
+export function restoreKind(kind) {
+  const kinds = String(kind).split('|');
+  const c = minimizedCards().find((x) => kinds.includes(x.dataset.kind));
+  return c ? restoreCard(c) : false;
+}
+export { updateTray };
 
 // ---------- Affichage en grand ----------
 let expanded = null;
@@ -197,16 +260,19 @@ let scrim = null;
 function placeSpotlight() {
   const top = document.querySelector('.topbar').getBoundingClientRect().bottom + 16;
   const dock = $('dock');
-  const bottomEdge = (!dock.hidden ? dock : $('composer')).getBoundingClientRect().top;
+  const tray = $('tray');
+  const bottomEdge = (!tray.hidden ? tray : !dock.hidden && !dock.classList.contains('mini') ? dock : $('composer')).getBoundingClientRect().top;
   const root = document.documentElement.style;
   root.setProperty('--spot-top', `${Math.round(top)}px`);
   root.setProperty('--spot-bottom', `${Math.max(12, Math.round(innerHeight - bottomEdge + 12))}px`);
 }
 addEventListener('resize', () => { if (expanded) placeSpotlight(); });
-new MutationObserver(() => { if (expanded) placeSpotlight(); }).observe($('dock'), { attributes: true, attributeFilter: ['hidden'] });
+new MutationObserver(() => { if (expanded) placeSpotlight(); }).observe($('dock'), { attributes: true, attributeFilter: ['hidden', 'class'] });
+new MutationObserver(() => { if (expanded) placeSpotlight(); }).observe($('tray'), { attributes: true, attributeFilter: ['hidden'] });
 
 export function expandCard(c) {
   if (!c?.isConnected) return false;
+  restoreCard(c);
   if (expanded === c) return true;
   if (expanded) collapseCard();
   placeSpotlight();

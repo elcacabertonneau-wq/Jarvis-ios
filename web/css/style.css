@@ -367,6 +367,73 @@ body.board-mode .core { inset: 55px; }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
+/* ---------- Caméra ---------- */
+.cam-body { display: flex; flex-direction: column; gap: var(--s3); min-height: 0; height: 100%; }
+.cam-frame { position: relative; flex: 1; min-height: 220px; border-radius: 12px; overflow: hidden; background: #000; box-shadow: var(--e4); }
+.stage:not(.board) .cam-frame { aspect-ratio: 16 / 9; flex: none; }
+.cam-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.cam-video.mirror { transform: scaleX(-1); }
+.cam-corner { position: absolute; width: 26px; height: 26px; border: 2px solid var(--c-400); opacity: .8; pointer-events: none; }
+.cam-corner.tl { top: 10px; left: 10px; border-right: 0; border-bottom: 0; border-radius: 6px 0 0 0; }
+.cam-corner.tr { top: 10px; right: 10px; border-left: 0; border-bottom: 0; border-radius: 0 6px 0 0; }
+.cam-corner.bl { bottom: 10px; left: 10px; border-right: 0; border-top: 0; border-radius: 0 0 0 6px; }
+.cam-corner.br { bottom: 10px; right: 10px; border-left: 0; border-top: 0; border-radius: 0 0 6px 0; }
+.cam-live {
+  position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+  padding: 2px var(--s2); border-radius: 6px; background: hsla(355, 90%, 50%, .8); color: #fff;
+  font: 700 var(--fs-12)/1.4 var(--font-hud); letter-spacing: .16em;
+}
+.cam-scan {
+  position: absolute; left: 0; right: 0; top: 0; height: 30%; opacity: 0; pointer-events: none;
+  background: linear-gradient(transparent, hsla(193, 100%, 60%, .35) 85%, hsla(193, 100%, 80%, .9));
+}
+.card.scanning .cam-scan { opacity: 1; animation: scan 1.2s linear infinite; }
+.card.scanning .cam-corner { border-color: var(--gold-500); }
+@keyframes scan { from { transform: translateY(-100%); } to { transform: translateY(340%); } }
+.cam-tools { margin-top: 0; }
+
+/* Analyse visuelle : l'image regardée + la réponse */
+.vision { display: flex; gap: var(--s5); align-items: flex-start; }
+.vision-shot { width: 240px; max-width: 40%; border-radius: 12px; box-shadow: var(--e4); cursor: zoom-in; flex: none; }
+.vision > .md { flex: 1; min-width: 0; }
+.stage.board .vision { flex-direction: column; }
+.stage.board .vision-shot { width: 100%; max-width: 100%; max-height: 180px; object-fit: cover; }
+
+/* Glisser-déposer une image */
+body.dropping::after {
+  content: "Déposez l'image pour que Jarvis l'analyse"; position: fixed; inset: var(--s4); z-index: 60;
+  display: grid; place-items: center; border: 2px dashed var(--c-400); border-radius: 20px;
+  background: hsla(222, 47%, 3%, .75); color: var(--c-300);
+  font: 600 var(--fs-24)/1 var(--font-hud); letter-spacing: .12em; text-transform: uppercase; pointer-events: none;
+}
+.composer .attach { width: 40px; height: 40px; border-radius: 50%; color: var(--text-3); }
+
+/* ---------- Fenêtres réduites (barre) ---------- */
+.card.minimized { display: none !important; }
+.card-min { width: 32px; height: 32px; color: var(--text-3); flex: none; }
+.card-min svg { width: 16px; height: 16px; }
+.tray {
+  position: relative; z-index: 30;
+  width: min(960px, calc(100% - var(--s7))); margin: 0 auto var(--s2);
+  display: flex; gap: var(--s2); flex-wrap: wrap; justify-content: center;
+}
+.tray-chip {
+  display: inline-flex; align-items: center; gap: var(--s2); max-width: 280px;
+  padding: 6px var(--s3); border-radius: 999px; cursor: pointer;
+  background: var(--glass-bg-strong); border: 1px solid var(--glass-edge);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  box-shadow: var(--e3), var(--glass-inset);
+  color: var(--text-2); font-size: var(--fs-14); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  transition: var(--state-transition);
+  animation: rise var(--d-fast) var(--ease-smooth-out);
+}
+@media (hover: hover) { .tray-chip:hover { color: var(--text); border-color: hsla(193, 100%, 70%, .35); transform: translateY(-2px); } }
+.tray-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--c-400); box-shadow: 0 0 8px var(--c-400); flex: none; }
+.tray-music .eq { height: 14px; }
+.tray-music .eq i { height: 14px; }
+.tray-music.paused .eq i { animation-play-state: paused; }
+.dock.mini { display: none !important; }
+
 /* ---------- Affichage en grand ---------- */
 .scrim {
   position: fixed; inset: 0; z-index: 18;
@@ -759,6 +826,9 @@ dialog.closing::backdrop { animation: fadeOut var(--d-quick) var(--ease-smooth-o
   .card.expanded .card-head h3 { font-size: var(--fs-18); }
   .seg button { padding: 6px var(--s2); letter-spacing: .08em; }
   .study-hero { flex-direction: column; }
+  .vision { flex-direction: column; }
+  .vision-shot { width: 100%; max-width: 100%; }
+  .tray { width: calc(100% - var(--s5)); }
   .study-hero > img { width: 100%; max-width: 100%; max-height: 220px; }
   .dock, .composer { width: calc(100% - var(--s5)); }
   .composer { margin-bottom: calc(var(--s3) + var(--safe-b)); }
@@ -770,7 +840,7 @@ dialog.closing::backdrop { animation: fadeOut var(--d-quick) var(--ease-smooth-o
 /* ---------- Accessibilité ---------- */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .001s !important; animation-iteration-count: 1 !important; animation-delay: 0s !important; transition-duration: .001s !important; }
-  .blob, .hud circle, .core, .eq i, .loading-line, .mic::after { animation: none !important; }
+  .blob, .hud circle, .core, .eq i, .loading-line, .mic::after, .cam-scan { animation: none !important; }
 }
 @media (prefers-reduced-transparency: reduce) {
   .topbar, .card, .composer, .dock, dialog, .suggest button, .lightbox, .scrim {

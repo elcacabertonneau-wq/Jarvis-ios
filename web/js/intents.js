@@ -114,12 +114,49 @@ export function matchIntent(input) {
   // Une commande simple peut préciser où afficher le résultat : « montre des photos de chats à gauche ».
   const { s, place } = splitPlace(full);
   const r = matchSimple(s);
-  if (r && place) r.actions.forEach((a) => { if (['images', 'generate_image', 'video', 'study', 'weather', 'timer'].includes(a.type)) a.place = place; });
+  if (r && place) r.actions.forEach((a) => { if (['images', 'generate_image', 'video', 'study', 'weather', 'timer', 'camera'].includes(a.type)) a.place = place; });
   return r;
+}
+
+// ---------- Réduire / rouvrir les fenêtres ----------
+const WIN = '(musique|radio|lecteur|son|vid[ée]o|photo|images?|galerie|r[ée]cap(?:itulatif)?|tableau|cam[ée]ra|webcam|m[ée]t[ée]o|minuteur|fiche|texte|analyse|r[ée]ponse)s?';
+function matchWindows(s) {
+  if (/^(?:minimise|minimiser|r[ée]duis|range|cache|masque|planque|baisse)(?:[- ]moi)?\s+(?:tout|toutes? les (?:fen[êe]tres|cartes)|tous les [ée]l[ée]ments|les fen[êe]tres)$|^minimise$|^(?:tout|les fen[êe]tres) en bas$/i.test(s)) {
+    return { actions: [{ type: 'minimize', target: 'all' }], speech: '' };
+  }
+  if (/^(?:restaure|r[ée]affiche|rouvre|r[ée]ouvre|ressors|remets|affiche|montre)(?:[- ]moi)?\s+(?:tout|toutes? les (?:fen[êe]tres|cartes)|tous les [ée]l[ée]ments|les fen[êe]tres)$/i.test(s)) {
+    return { actions: [{ type: 'restore', target: 'all' }], speech: '' };
+  }
+  let m = s.match(new RegExp(`^(?:minimise|minimiser|r[ée]duis|range|cache|masque|planque)(?:[- ]moi)?\\s+(?:la |le |les |l'|l’|ma |mon |mes )?${WIN}$`, 'i'));
+  if (m) return { actions: [{ type: 'minimize', target: m[1] }], speech: '' };
+  m = s.match(new RegExp(`^(?:restaure|r[ée]affiche|rouvre|r[ée]ouvre|ressors|remets)(?:[- ]moi)?\\s+(?:la |le |les |l'|l’|ma |mon |mes )?${WIN}$`, 'i'));
+  if (m) return { actions: [{ type: 'restore', target: m[1] }], speech: '' };
+  return null;
+}
+
+// ---------- Caméra et vision ----------
+const CAM = /cam[ée]ra|webcam|cam\b/i;
+function matchVision(s) {
+  if (/^(?:affiche|montre|allume|ouvre|active|lance|d[ée]marre|mets)(?:[- ](?:moi|nous))?\s+(?:la |ma |une )?(?:cam[ée]ra|webcam|cam)$/i.test(s)) return { actions: [{ type: 'camera', on: true }], speech: '' };
+  if (/^(?:ferme|coupe|[ée]teins|arr[êe]te|d[ée]sactive|enl[èe]ve|cache)(?:[- ]moi)?\s+(?:la |ma )?(?:cam[ée]ra|webcam|cam)$/i.test(s)) return { actions: [{ type: 'camera', on: false }], speech: 'Caméra coupée.' };
+  if (/^(?:change|retourne|inverse|bascule|passe)(?:[- ]moi)?\s+(?:de |la |sur la )?(?:cam[ée]ra|webcam)(?:\s+(?:avant|arri[èe]re|de devant|de derri[èe]re))?$/i.test(s)) return { actions: [{ type: 'camera', switch: true }], speech: '' };
+
+  // Recherche d'images classique (« montre des photos de chats ») : ce n'est pas de la vision.
+  if (/^(?:montre|affiche|cherche|trouve|donne)[\w\s'’-]*\b(?:images?|photos?)\s+(?:de|d'|d’|du|des)\s/i.test(s) && !/cam[ée]ra|webcam|cette|ceci|(?:^|\s)[çc]a(?=\s|$)|similaire|ressembl/i.test(s)) return null;
+  const verb = /(qu'?est[- ]ce que tu vois|que vois[- ]tu|tu vois quoi|tu vois (?:[çc]a|ce)|dis[- ]moi ce que tu vois|regarde|analyse|[ée]tudie|examine|d[ée]cris|identifie|reconna[iî]s|lis\b|lire|traduis|compte|recherche|cherche|fais des recherches|renseigne|c'est quoi|qu'?est[- ]ce que c'est|qu'?est[- ]ce que (?:je tiens|j'ai)|combien|quel(?:le)? est (?:cet|cette|ce)|similaires?|qui ressembl)/i;
+  const target = /(cam[ée]ra|webcam|\bcam\b|\bimage\b|\bphoto\b|capture|ce que (?:tu vois|je (?:te )?montre|je tiens|j'ai (?:dans|en) (?:la |ma )?main)|devant (?:moi|toi|la cam)|dans ma main|(?:^|\s)[çc]a(?=\s|$)|ceci|cet objet|ce truc|ce document|ce texte|cette (?:image|photo|page|feuille|[ée]tiquette|plante|chose))/i;
+  if (/^(qu'?est[- ]ce que tu vois|que vois[- ]tu|tu vois quoi|dis[- ]moi ce que tu vois|regarde|tu me vois)\s*\??$/i.test(s) || (verb.test(s) && target.test(s))) {
+    return { actions: [{ type: 'look', prompt: s }], speech: '' };
+  }
+  return null;
 }
 
 function matchSimple(s) {
   if (!s) return null;
+  const win = matchWindows(s);
+  if (win) return win;
+  const vision = matchVision(s);
+  if (vision) return vision;
   for (const [re, build, guard] of RULES) {
     if (guard && !guard(s)) continue;
     const m = s.match(re);
@@ -153,7 +190,7 @@ export function matchTableIntent(input, { hasTable = false, canRestore = false }
 
   if (/^(ferme|supprime|enleve|retire|efface|cache)( le| ce)? (tableau|recap|recapitulatif)$/.test(s)) return { close: true };
   if (/^(agrandis|agrandir|agrandi|zoome|en grand|affiche (le |la |ca |ce )?en grand|mets (le |la |ca |ce )?en grand|montre (le |la |ca |ce )?en grand|affiche le en grand)/.test(s) || /\ben grand\b/.test(s)) return { expand: true };
-  if (/^(reduis|reduire|reduit|retrecis|rapetisse|en petit|remets (le |la |ca )?en petit|reviens$|range (le|la|ca))/.test(s) || /\ben petit\b/.test(s)) return { expand: false };
+  if (/^(reduis|reduire|reduit|retrecis|rapetisse)( le| la| ca| le tableau| la carte)?$|^(en petit|remets (le |la |ca )?en petit|reviens)$/.test(s)) return { expand: false };
   if (/(inverse|echange|permute|intervertis|transpose|tourne)r?( les)? (lignes? et (les )?colonnes?|colonnes? et (les )?lignes?)|^transpose/.test(s)) return { transpose: true };
 
   const layouts = [
