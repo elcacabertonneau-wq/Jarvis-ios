@@ -313,21 +313,51 @@ async function complete(messages, opts) {
   throw failures.length ? Object.assign(new Error(failures.join(' · ')), { status: lastErr?.status }) : new Error('Aucune IA disponible');
 }
 
+// Extrait l'objet JSON d'une réponse d'IA, même mal formée (texte autour, balises de réflexion,
+// accolade ou guillemet en trop comme `{"{"speech":…}`) : on essaie chaque « { » avec un appariement
+// d'accolades qui tient compte des chaînes, et on garde le premier objet qui se lit.
+export function extractJSON(raw, keys = ['speech', 'actions', 'kind', 'root', 'parts', 'plan', 'display']) {
+  const text = String(raw || '').replace(/<think>[\s\S]*?<\/think>/g, '').trim().replace(/^```(?:json)?\s*|\s*```$/g, '');
+  const tryParse = (t) => { try { const o = JSON.parse(t); return o && typeof o === 'object' && !Array.isArray(o) ? o : null; } catch { return null; } };
+  const whole = tryParse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1));
+  if (whole && keys.some((k) => k in whole)) return whole;
+  let fallback = whole;
+  let tries = 0;
+  for (let i = text.indexOf('{'); i !== -1 && tries < 40; i = text.indexOf('{', i + 1), tries++) {
+    let depth = 0;
+    let inStr = false;
+    for (let j = i; j < text.length; j++) {
+      const c = text[j];
+      if (inStr) { if (c === '\\') j++; else if (c === '"') inStr = false; continue; }
+      if (c === '"') inStr = true;
+      else if (c === '{') depth++;
+      else if (c === '}' && --depth === 0) {
+        const o = tryParse(text.slice(i, j + 1));
+        if (o && keys.some((k) => k in o)) return o;
+        if (o && !fallback) fallback = o;
+        break;
+      }
+    }
+  }
+  return fallback;
+}
+
 export function parseReply(raw) {
-  let text = String(raw || '').trim().replace(/^```(?:json)?\s*|\s*```$/g, '');
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start !== -1 && end > start) {
-    try {
-      const obj = JSON.parse(text.slice(start, end + 1));
-      return {
-        speech: String(obj.speech || obj.say || ''),
-        display: String(obj.display || ''),
-        title: String(obj.title || ''),
-        place: String(obj.display_place || ''),
-        actions: Array.isArray(obj.actions) ? obj.actions : [],
-      };
-    } catch { /* texte libre */ }
+  const text = String(raw || '').replace(/<think>[\s\S]*?<\/think>/g, '').trim().replace(/^```(?:json)?\s*|\s*```$/g, '');
+  const obj = extractJSON(text);
+  if (obj) {
+    return {
+      speech: String(obj.speech || obj.say || ''),
+      display: String(obj.display || ''),
+      title: String(obj.title || ''),
+      place: String(obj.display_place || ''),
+      actions: Array.isArray(obj.actions) ? obj.actions : [],
+    };
+  }
+  // JSON illisible : on récupère au moins la phrase à dire, sans jamais lire du JSON à voix haute.
+  if (/^\s*[{[]/.test(text) || /"speech"\s*:/.test(text)) {
+    const sp = text.match(/"speech"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+    return { speech: sp ? sp[1].replace(/\\"/g, '"').replace(/\\n/g, ' ') : "Désolé, ma réponse s'est mal formée. Pouvez-vous répéter ?", display: '', title: '', place: '', actions: [] };
   }
   const short = text.length > 280 ? `${text.split(/(?<=[.!?])\s/).slice(0, 2).join(' ')}` : text;
   return { speech: short, display: text.length > 280 ? text : '', title: '', place: '', actions: [] };
@@ -503,8 +533,9 @@ const AR_RULES = `Règles de la maquette :
 - "polyhaven" : seulement pour un objet courant du quotidien (meuble, chaise, lampe, plante en pot, vase, outil, statue, rocher…), 1 à 3 mots-clés EN ANGLAIS pour chercher un vrai modèle photoréaliste dans la bibliothèque Poly Haven ; fournis quand même "parts" en secours. Sinon "".`;
 
 function parseJSON(raw) {
-  const text = String(raw || '').trim().replace(/^```(?:json)?\s*|\s*```$/g, '');
-  return JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1));
+  const o = extractJSON(raw);
+  if (!o) throw new Error('Réponse illisible');
+  return o;
 }
 
 // Construit une maquette 3D (formes simples ou plan) d'un sujet, pour l'hologramme en réalité augmentée.

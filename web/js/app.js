@@ -627,6 +627,11 @@ const ACTIONS = {
       const quick = ar.builtin(request);
       if (quick) { ar.setPanel(null); await ar.showScene(quick); return `Voici ${quick.speech || quick.title} en hologramme.`; }
 
+      // Lieu ou trajet reconnu localement (y compris dans une demande reformulée par l'IA) : pas besoin d'aiguillage.
+      const local = matchGeoIntent(request);
+      if (local?.map) return await arMap(local.map);
+      if (local?.route) return await ACTIONS.route(local.route);
+
       // Aiguillage : vraie carte 3D, itinéraire, vrai modèle ou maquette construite.
       ar.setLoading('Je cherche la meilleure source 3D…');
       const plan = (hasAI() && await arPlan(request).catch((e) => { console.warn(e); return null; })) || await guessPlan(request);

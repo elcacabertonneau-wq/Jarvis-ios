@@ -386,6 +386,14 @@ export function matchGeoIntent(input) {
   m = raw.match(/^(?:(?:montre|affiche|projette|donne|ouvre|fais[- ]moi voir|je veux voir|je voudrais voir|fais|fait|cr[ée]e|g[ée]n[èe]re|construis|dessine|mod[ée]lise|visualise|pr[ée]pare|sors)(?:[- ]moi)?\s+)?(?:le |la |un |une |ton |ta )?(?:plan|carte|map|vue|maquette|mod[èe]le)(?: 3 ?d| en 3 ?d| en relief| a[ée]rienne)?\s+(?:de |d'|d’|du |des )(.+)$/i);
   // « maquette de … » / « modèle de … » sans 3D : seulement pour une ville ou un lieu, décidé plus bas par l'aiguillage.
   if (m && /^(?:.*\s)?(?:maquette|mod[èe]le)\b/i.test(raw.slice(0, raw.indexOf(m[1]))) && !/3 ?d|relief/i.test(input)) m = null;
+  // Formulations libres (dictée vocale : « faire un plan 3D de… », « je veux la carte en 3D de… ») : plan/carte + 3D + « de <lieu> ».
+  if (!m && /\b(?:plan|carte|map|vue a[ée]rienne)\b/i.test(raw) && /3 ?d|relief|a[ée]rienne/i.test(input)) {
+    m = raw.match(/\b(?:plan|carte|map|vue a[ée]rienne)\b(?:\s+(?:3 ?d|en 3 ?d|en relief))?\s+(?:de |d'|d’|du |des )(.+)$/i);
+  }
+  // Sans « 3D », « fais un plan de… » est plutôt un plan de travail : seulement « montre / affiche le plan de <lieu> ».
+  const NOT_PLACE = /^(?:(?:un|une|mon|ma|mes|la|le|l'|l’)\s*)?(?:r[ée]vision|travail|cours|action|entra[iî]nement|repas|table|dissertation|expos[ée]|marketing|communication|business|bataille|match|s[ée]ance|projet|carri[èe]re|vie|semaine|journ[ée]e|mois|ann[ée]e|lecture|[ée]tude|financement|attaque|jeu|site|la classe)/i;
+  if (m && !/3 ?d|relief|a[ée]rienne/i.test(input) && (/^(?:fais|fait|faire|cr[ée]e|g[ée]n[èe]re|construis|pr[ée]pare|sors|dessine|mod[ée]lise)\b/i.test(raw) || NOT_PLACE.test(m[1]))) m = null;
+  if (m) m[1] = m[1].replace(/^(?:la |le )?(?:ville|cit[ée]|quartier|r[ée]gion|pays) (?:de |d'|d’|du )/i, '');
   if (m && !/appartement|maison|logement|studio|bureau|pi[èe]ce|chambre|cuisine|\bt\d\b|f\d\b|villa|loft|salle|immeuble invent|jardin/i.test(m[1])) {
     return { map: tidy(m[1]) };
   }
