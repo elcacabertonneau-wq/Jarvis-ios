@@ -426,6 +426,9 @@ function openSettings() {
     settings.muted = saved.muted;
   };
   $('forget').onclick = () => { memory.clear(); ui.log('system', 'Historique effacé.'); };
+  // Fermeture animée pour les boutons ; la touche Échap ferme instantanément (pas d'animation au clavier).
+  const closeAnimated = (value) => ui.animateOut(dlg, 'closing', () => { dlg.classList.remove('closing'); dlg.close(value); });
+  f.onsubmit = (e) => { e.preventDefault(); closeAnimated(e.submitter?.value || 'cancel'); };
   dlg.onclose = () => {
     if (dlg.returnValue === 'save') {
       const patch = {};

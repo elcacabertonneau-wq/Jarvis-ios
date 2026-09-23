@@ -19,6 +19,18 @@ export const el = (tag, attrs = {}, ...children) => {
   return n;
 };
 
+// Joue l'animation de sortie (classe CSS) puis appelle done ; immédiat si l'utilisateur réduit les animations.
+export function animateOut(node, cls, done) {
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches || !node.isConnected) return done();
+  let finished = false;
+  const end = () => { if (!finished) { finished = true; done(); } };
+  // On ignore les animations des éléments enfants (images, barre de chargement…).
+  const onEnd = (e) => { if (e.target === node) { node.removeEventListener('animationend', onEnd); end(); } };
+  node.addEventListener('animationend', onEnd);
+  setTimeout(end, 300);
+  node.classList.add(cls);
+}
+
 export function setStatus(text) { $('status').textContent = text; }
 export function setOrb(state) { $('orb').dataset.state = state; $('mic').classList.toggle('active', state === 'listening'); }
 export function setLive(text, cls = '') { const l = $('live'); l.textContent = text; l.className = `live ${cls}`; }
@@ -39,7 +51,7 @@ export function card(title, body, { icon = '' } = {}) {
   const c = el('article', { class: 'card' },
     el('div', { class: 'card-head' }, el('h3', {}, `${icon ? `${icon} ` : ''}${title || ''}`), closeBtn),
     body);
-  closeBtn.onclick = () => removeCard(c);
+  closeBtn.onclick = () => removeCard(c, true);
   stage().prepend(c);
   const cards = stage().querySelectorAll('.card');
   for (let i = MAX_CARDS; i < cards.length; i++) removeCard(cards[i]);
@@ -47,13 +59,14 @@ export function card(title, body, { icon = '' } = {}) {
   return c;
 }
 
-function removeCard(c) {
+function removeCard(c, animated = false) {
   c.querySelectorAll('iframe').forEach((f) => unregisterVideo(f));
-  c.remove();
+  if (animated) animateOut(c, 'leaving', () => c.remove());
+  else c.remove();
 }
 
 export function clearStage() {
-  stage().querySelectorAll('.card').forEach(removeCard);
+  stage().querySelectorAll('.card').forEach((c) => removeCard(c, true));
 }
 
 export function describeStage() {
@@ -90,9 +103,13 @@ export function lightbox(items, start = 0) {
     cap.append(`${it.title || ''} `, it.source ? el('a', { href: it.source, target: '_blank', rel: 'noopener', onclick: (e) => e.stopPropagation() }, '(source)') : '');
   };
   const box = el('div', { class: 'lightbox', role: 'dialog' }, img, cap);
-  const close = () => { box.remove(); document.removeEventListener('keydown', key); };
+  const close = (animated = true) => {
+    document.removeEventListener('keydown', key);
+    if (animated) animateOut(box, 'leaving', () => box.remove());
+    else box.remove(); // action clavier : pas d'animation
+  };
   const key = (e) => {
-    if (e.key === 'Escape') close();
+    if (e.key === 'Escape') close(false);
     if (e.key === 'ArrowRight') { i = (i + 1) % items.length; show(); }
     if (e.key === 'ArrowLeft') { i = (i - 1 + items.length) % items.length; show(); }
   };
@@ -102,7 +119,7 @@ export function lightbox(items, start = 0) {
     const dx = e.changedTouches[0].clientX - x0;
     if (Math.abs(dx) > 50) { i = (i + (dx < 0 ? 1 : -1) + items.length) % items.length; show(); e.preventDefault(); }
   });
-  box.onclick = close;
+  box.onclick = () => close();
   document.addEventListener('keydown', key);
   show();
   document.body.append(box);
