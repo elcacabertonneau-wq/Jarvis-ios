@@ -18,6 +18,8 @@ export const defaults = {
   rate: 1.05,
   pitch: 0.9,
   muted: false,
+  themeAccent: '',
+  themeBackground: '',
   idleReturn: 120, // secondes sans activité avant le retour à l'accueil (0 = jamais)
 };
 

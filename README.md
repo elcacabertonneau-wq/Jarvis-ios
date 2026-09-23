@@ -49,6 +49,23 @@ Chaque carte a un bouton **—** qui la réduit dans une barre en bas (elle cont
 
 À la voix : « minimise tout », « réduis la musique », « range la vidéo », « rouvre la caméra », « réaffiche tout ».
 
+### Cartes mentales
+« Fais une carte mentale sur la Révolution française » : sujet au centre, branches colorées, idées et détails. **Molette** pour zoomer, **glisser** pour se déplacer, **clic** sur une branche pour la replier/déplier, double-clic pour recentrer.
+
+| Dites… | Effet |
+|---|---|
+| « Mets-la en arbre », « passe en organigramme », « remets en carte mentale » | 3 dispositions |
+| « Déplie tout », « replie tout », « déplie la branche causes », « replie conséquences » | Ouvrir / fermer des branches |
+| « Ajoute une branche sur les femmes pendant la Révolution » | Jarvis enrichit la carte (via l'IA) |
+| « Ferme la carte mentale », « réaffiche la carte mentale » | Fermer / rappeler |
+
+### Mise en forme libre
+Jarvis a carte blanche pour présenter les informations comme vous le demandez :
+- **Pages sur mesure** : infographie, frise chronologique, fiche illustrée, affiche, tableau de bord, quiz interactif… Jarvis conçoit la page entière (HTML/CSS/JS), affichée dans un cadre isolé et sécurisé.
+- **Disposition exacte** : « mets la carte mentale sur les deux tiers gauche et la frise en haut à droite », position et taille au pourcentage près. Vous pouvez aussi **déplacer une fenêtre en la tirant par son titre** et **la redimensionner par son coin** en bas à droite.
+- **Style** : couleur, fond (verre, uni, transparent, lumineux, clair) et taille du texte de chaque fenêtre (« mets le récap en grand avec un style doré »).
+- **Thème** : « mets l'interface en rouge », « thème violet », « remets les couleurs par défaut » (retenu d'une visite à l'autre), ambiances sombre, minimale ou vive.
+
 ### Placer les éléments à l'écran
 Dites où vous voulez chaque élément : « fais des recherches sur les trous noirs et place un récap à droite, une photo à gauche et une vidéo en bas ». L'écran devient un tableau de bord organisé (positions : gauche, droite, haut, bas, centre et les 4 coins). Une commande simple accepte aussi une position : « montre des photos de chats à gauche ».
 
@@ -122,6 +139,7 @@ web/
 ├── js/voice.js           Reconnaissance vocale, mot d'activation, synthèse vocale
 ├── js/intents.js         Commandes reconnues localement (sans IA)
 ├── js/tables.js          Tableaux récapitulatifs : 4 dispositions, tri, mise en évidence
+├── js/mindmap.js         Cartes mentales : 3 dispositions, zoom, branches repliables
 ├── js/brain.js           IA (Groq / Gemini / Claude / Pollinations), vision, mémoire de conversation
 ├── js/camera.js          Caméra, capture, images envoyées
 ├── js/services.js        Images, Wikipédia, YouTube, radio, météo

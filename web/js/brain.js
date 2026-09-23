@@ -27,6 +27,7 @@ Date et heure actuelles : ${now.toLocaleString(settings.lang, { dateStyle: 'full
 ${ctx.playing ? `En cours de lecture : ${ctx.playing}.` : ''}
 ${ctx.screen ? `Actuellement affiché à l'écran : ${ctx.screen}.` : ''}
 ${ctx.table ? `Tableau actuellement affiché (JSON) : ${ctx.table}` : ''}
+${ctx.mindmap ? `Carte mentale actuellement affichée (JSON) : ${ctx.mindmap}` : ''}
 ${ctx.camera ? 'La caméra de l\'utilisateur est ouverte à l\'écran.' : ''}
 ${ctx.image ? `L'utilisateur a fourni une image récemment (${ctx.image}).` : ''}
 
@@ -58,10 +59,18 @@ Actions disponibles (0, 1 ou plusieurs) :
 - {"type":"move","target":"photo|images|video|recap|fiche|meteo|minuteur|texte","place":"..."} : déplacer un élément déjà affiché
 - {"type":"swap","a":"...","b":"..."} : échanger la position de deux éléments affichés
 - {"type":"layout_reset"} : remettre l'affichage normal (sans positions)
+- {"type":"mindmap","title":"...","root":{"label":"Sujet","children":[{"label":"Branche","children":[{"label":"Idée"}]}]},"layout":"mindmap|tree|org","place":"..."} : carte mentale (3 à 7 branches principales, 2 à 5 idées par branche, libellés courts de 1 à 6 mots, jusqu'à 3 niveaux)
+- {"type":"mindmap_update","layout":"mindmap|tree|org","expand_all":true,"collapse_all":true,"toggle":"libellé","close":true} : changer l'affichage de la carte mentale affichée. Pour changer son CONTENU (ajouter des branches…), renvoie une action "mindmap" complète.
+- {"type":"page","title":"...","html":"<style>…</style><div>…</div>","height":600,"place":"..."} : LIBERTÉ TOTALE DE MISE EN FORME. Page HTML+CSS que tu conçois entièrement (infographie, frise chronologique, fiche illustrée, affiche, tableau de bord, schéma, présentation, comparatif visuel, quiz interactif…). Fond sombre élégant cohérent avec l'interface (texte clair, accents cyan/violet/or), mise en page soignée (grilles, colonnes, badges, icônes emoji, dégradés, ombres). Autonome : pas de ressources externes sauf des images https. Tu peux utiliser du JavaScript pour l'interactivité ou dessiner sur un <canvas>. Le contenu s'adapte à la largeur disponible.
+- {"type":"arrange","items":[{"target":"video","x":0,"y":0,"w":60,"h":100},{"target":"recap","x":60,"y":0,"w":40,"h":50}]} : placer et dimensionner LIBREMENT les fenêtres affichées (x, y, w, h en % de la zone d'affichage). Cibles : photo, images, video, recap/tableau, fiche, meteo, minuteur, texte, camera, carte mentale, page.
+- {"type":"style","target":"...","accent":"couleur ou #hex","background":"glass|solid|transparent|glow|light","size":"small|normal|large|huge","title":"nouveau titre"} : changer l'apparence d'une fenêtre
+- {"type":"theme","accent":"couleur ou #hex (default pour revenir au cyan)","background":"aurora|dark|minimal|vivid"} : changer les couleurs et l'ambiance de toute l'interface
 - {"type":"minimize","target":"all|musique|video|photo|recap|camera|meteo|minuteur|fiche|texte"} : réduire des fenêtres dans la barre du bas (elles continuent de fonctionner)
 - {"type":"restore","target":"all|…"} : rouvrir des fenêtres réduites
 
-Disposition de l'écran : toute action qui affiche quelque chose (images, generate_image, video, study, weather, timer, table, text) accepte "place" parmi : left, right, top, bottom, center, top-left, top-right, bottom-left, bottom-right. Quand l'utilisateur précise où mettre les éléments (« récap à droite, photo à gauche, vidéo en bas »), crée UNE action par élément avec sa "place". Une « photo » = images avec count 1. Un « récap » = table (ou text si ce n'est pas tabulaire). Sans indication de position, n'ajoute pas "place".
+Liberté de mise en forme : tu as carte blanche pour présenter les informations de la façon la plus claire et la plus belle selon la demande. Combine librement les actions : "page" pour une mise en forme sur mesure, "mindmap" pour une carte mentale, "table" pour un récap, "arrange" pour une disposition précise, "style"/"theme" pour les couleurs. Si l'utilisateur décrit une mise en page (« en grand à gauche », « sur deux colonnes », « la vidéo sur les deux tiers »…), traduis-la fidèlement avec "place" ou "arrange".
+
+Disposition de l'écran : toute action qui affiche quelque chose (images, generate_image, video, study, weather, timer, table, text, mindmap, page, camera) accepte "place" parmi : left, right, top, bottom, center, top-left, top-right, bottom-left, bottom-right. Quand l'utilisateur précise où mettre les éléments (« récap à droite, photo à gauche, vidéo en bas »), crée UNE action par élément avec sa "place". Une « photo » = images avec count 1. Un « récap » = table (ou text si ce n'est pas tabulaire). Sans indication de position, n'ajoute pas "place".
 
 Règles :
 - Si la demande nécessite une action, déclenche-la plutôt que de décrire ce que tu ferais.
@@ -348,6 +357,19 @@ export async function see(userText, image, ctx = {}) {
     }
   }
   throw lastErr;
+}
+
+// Génère une carte mentale structurée sur un sujet.
+export async function mindmapFor(topic, extra = '') {
+  const lang = settings.lang.startsWith('en') ? 'English' : 'français';
+  const messages = [
+    { role: 'system', content: `Tu crées des cartes mentales claires et pédagogiques en ${lang}. Réponds uniquement en JSON : {"speech":"une phrase qui présente la carte","title":"titre","root":{"label":"sujet central (1 à 4 mots)","children":[{"label":"branche","children":[{"label":"idée","children":[{"label":"détail"}]}]}]}}` },
+    { role: 'user', content: `Carte mentale sur : ${topic}${extra ? `\nPrécisions : ${extra}` : ''}\n\nRègles : 4 à 7 branches principales qui couvrent tout le sujet (causes, acteurs, étapes, notions clés, conséquences, exemples… selon le sujet), 2 à 5 idées par branche, parfois un 3e niveau de détails (dates, chiffres, exemples). Libellés courts (1 à 6 mots), précis et factuels.` },
+  ];
+  const raw = await complete(messages, { json: true });
+  const text = String(raw).trim().replace(/^```(?:json)?\s*|\s*```$/g, '');
+  const obj = JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1));
+  return obj;
 }
 
 // Génère une fiche d'étude structurée à partir de sources Wikipédia.
