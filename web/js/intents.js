@@ -275,3 +275,91 @@ export function matchMindmapIntent(input, { hasMindmap = false, canRestore = fal
   if (/^(recentre|centre)( la carte)?$/.test(s)) return { fit: true };
   return null;
 }
+
+// ---------- Réalité augmentée (hologrammes 3D) ----------
+const AR_WORDS = "(?:en |dans la |avec la |sous forme d'|sous forme de |comme un |comme une |façon )?(?:3 ?d|trois dimensions|a\\.? ?r\\.?|r[ée]alit[ée] augment[ée]e|hologrammes?|holographique|relief)";
+const IMG_REF = /^(?:cette|cet|ce|l'|l’|la|le|mon|ma)\s*(?:image|photo|dessin|capture|sch[ée]ma|plan|croquis)(?:\s+(?:que je t'ai envoy[ée]e?|envoy[ée]e?|affich[ée]e?|[àa] l'[ée]cran))?$/i;
+export function matchARIntent(input, { open = false, canRestore = false } = {}) {
+  const raw = clean(input);
+  const s = fold(raw);
+  if (!s) return null;
+
+  // Ouvrir / rappeler la vue AR.
+  if (/^(?:(?:ouvre|lance|active|d[ée]marre|affiche|passe en|mets?(?: moi)? en|mode)(?:[- ]moi)?\s+)?(?:la |le |en |mode )?(?:r[ée]alit[ée] augment[ée]e|a\.? ?r\.?|mode a\.? ?r\.?|hologrammes?|vue 3 ?d|mode hologramme)$/i.test(raw) && !open) {
+    return canRestore ? { restore: true } : { open: true };
+  }
+  if (/^(re ?affiche|remets|rouvre|reouvre|montre a nouveau)( moi)? (le |l')?(dernier )?(hologramme|modele 3 ?d|objet 3 ?d)$/.test(s)) return { restore: true };
+
+  // Créer un hologramme : « projette un moteur en 3D », « montre-moi l'ADN en hologramme », « projette ce plan ».
+  let m = raw.match(new RegExp(`^(?:projette|projeter|projection d[eu']?|affiche|montre|mets|fais(?: appara[iî]tre)?|g[ée]n[èe]re|cr[ée]e|construis|mod[ée]lise|dessine|visualise|transforme|convertis|passe|je veux voir)(?:[- ](?:moi|nous))?\\s+(.+?)\\s+${AR_WORDS}(?:\\s+(?:devant moi|sur ma cam[ée]ra|dans la pi[èe]ce|ici))?$`, 'i'))
+    || raw.match(/^(?:projette|projeter|projection d[eu']?)(?:[- ](?:moi|nous))?\s+(.+?)(?:\s+(?:devant moi|sur ma cam[ée]ra|dans la pi[èe]ce|ici))?$/i)
+    || raw.match(new RegExp(`^(?:un |une )?(?:hologramme|mod[èe]le 3 ?d|maquette 3 ?d|objet 3 ?d|maquette)\\s+(?:de |d'|d’|du |des )(.+)$`, 'i'));
+  if (m) {
+    const what = m[1].trim();
+    if (!what) return null;
+    if (IMG_REF.test(what)) {
+      // « projette ce plan en 3D » → le plan devient une maquette ; « projette cette image » → panneau flottant.
+      const is3D = /plan|croquis|sch[ée]ma/i.test(what) && new RegExp(AR_WORDS, 'i').test(raw) && /3 ?d|relief|volume|maquette|trois/i.test(raw);
+      return { image: /affich|[ée]cran/i.test(what) ? 'screen' : 'last', planFromImage: is3D };
+    }
+    const pics = what.match(/^(?:des |les |une |quelques )?(?:images?|photos?)\s+(?:de |d'|d’|du |des |sur )?(.+)$/i);
+    if (pics) return { imageQuery: obj(pics[1]) };
+    return { topic: what.replace(/^(?:un |une |le |la |les |l'|l’|des |du )/i, '').trim() };
+  }
+
+  if (!open) return null;
+  // Commandes quand l'hologramme est affiché (instantanées).
+  if (/^(ferme|quitte|sors?( de)?|arrete|coupe|stoppe|termine|desactive|enleve)( la| le| l'| les)?( (realite augmentee|ar|mode ar|hologrammes?|3 ?d|projection|vue 3 ?d))?$/.test(s)) return { close: true };
+  if (/^(fais le |fais la |fait le |fait la )?(tourner|pivoter)( tout seul| en continu| sur lui meme)?$|^(active |lance )?(la )?rotation( auto(matique)?)?$/.test(s)) return { spin: true };
+  if (/^(arrete|stoppe|coupe|stop)( de tourner| la rotation| de pivoter)?$|^(immobilise|fige|bloque)( le| la)?$/.test(s)) return { spin: false };
+  if (/^(plus grand|plus gros|agrandis|grossis|zoome?|rapproche)( le| la| l'hologramme| le modele)?( encore)?( un peu)?$|^en plus grand$/.test(s)) return { zoom: 1.4 };
+  if (/^(plus petit|reduis|rapetisse|retrecis|dezoome?|eloigne)( le| la| l'hologramme| le modele)?( encore)?( un peu)?$|^en plus petit$/.test(s)) return { zoom: 1 / 1.4 };
+  if (/^(reinitialise|recentre|centre|remets? (le |la )?(au centre|en place|droit|comme avant)|position initiale)$/.test(s)) return { reset: true };
+  if (/^((mode|en|passe en|mets en|effet) )?(hologramme|holographique|holo)$/.test(s)) return { holo: true };
+  if (/^((mode|en|passe en|mets en|remets les?) )?(realiste|couleurs?( reelles?| normales?| d'origine)?|textures?|vraies couleurs)$/.test(s)) return { holo: false };
+  if (/^(change|retourne|inverse|bascule)( de)?( la)? camera$/.test(s)) return { switchCamera: true };
+  if (/^(coupe|desactive|arrete)( le suivi des)? mains$/.test(s)) return { hands: false };
+  if (/^(active|reactive|allume)( le suivi des)? mains$/.test(s)) return { hands: true };
+  m = s.match(/^(?:vue|montre le|montre la|montre moi|regarde|affiche)(?: moi)? (?:de |d'|du |par )?(?:la )?(dessus|haut|face|devant|cote|profil|derriere|dos|dessous)$/);
+  if (m) return { view: { dessus: 'top', haut: 'top', face: 'front', devant: 'front', cote: 'side', profil: 'side', derriere: 'back', dos: 'back', dessous: 'below' }[m[1]] };
+  m = s.match(/^(?:tourne|pivote|fais tourner)(?: le| la| l'hologramme)? (?:vers |a |sur )?(?:la )?(gauche|droite|haut|bas)$/);
+  if (m) return { turn: { gauche: [-45, 0], droite: [45, 0], haut: [0, -45], bas: [0, 45] }[m[1]] };
+  if (/^(retourne|renverse)( le| la)?$|^demi tour$/.test(s)) return { turn: [180, 0] };
+  return null;
+}
+
+// ---------- Mémoire personnelle ----------
+export function matchMemoryIntent(input) {
+  const raw = clean(input);
+  const s = fold(raw);
+  if (!s) return null;
+  let m = raw.match(/^(?:souviens[- ]toi|rappelle[- ]toi|retiens(?: bien)?|m[ée]morise|n['’]oublie pas|garde (?:[çc]a )?en m[ée]moire|enregistre dans ta m[ée]moire|note dans ta m[ée]moire|prends note|ajoute (?:[àa]|dans) ta m[ée]moire)\s*(?:que |qu['’]|le fait que |de |d['’]|:|,)?\s*(.+)$/i);
+  // « Retiens ça » : il faut le contexte de la conversation, l'IA s'en charge.
+  if (m && !/^(?:[çc]a|ceci|cela|le|la|les|tout [çc]a|bien|[çc]a stp)$/i.test(m[1].trim())) return { remember: m[1] };
+  if (/^(qu[' ]?est ce que tu sais (sur|de) moi|que sais tu (sur|de) moi|tu sais quoi (sur|de) moi|qu[' ]?as tu retenu( sur moi)?|qu[' ]?est ce que tu as retenu( sur moi)?|tes souvenirs|ma memoire|ta memoire|(montre|affiche|liste|lis|ouvre)( moi)? (ta|ma|la) memoire|(montre|affiche|liste|dis)( moi)? (tes souvenirs|ce que tu sais (sur|de) moi|ce que tu as retenu))$/.test(s)) return { show: true };
+  if (/^(oublie (tout ce que tu sais (sur|de) moi|tout|toute ta memoire|tous tes souvenirs|tout ce que je t ai dit)|(efface|vide|reinitialise) (ta|ma|la) memoire)$/.test(s)) return { forgetAll: true };
+  m = raw.match(/^oublie\s+(?:que |qu['’]|le fait que |ce que je t['’]ai dit (?:sur|à propos d[eu']?)\s*)?(.+)$/i);
+  if (m && !/^(?:[çc]a|ceci|cela|le|la)$/i.test(m[1].trim())) return { forget: m[1] };
+  return null;
+}
+
+// ---------- Dessin dans l'air ----------
+const DRAW_COLORS = 'cyan|or|dore|rose|vert|blanc|violet|rouge|bleu|jaune|orange';
+export function matchDrawIntent(input, { open = false } = {}) {
+  const s = fold(clean(input));
+  if (!s) return null;
+  if (!open) {
+    if (/^((ouvre|lance|active|affiche|demarre|passe en|mets moi en|mets en)( moi)? )?(le |la |l'|un |une )?(mode dessin|tableau blanc|ardoise( magique)?|dessin dans l'air|dessin en l'air)$/.test(s)
+      || /^(je (veux|voudrais|vais|aimerais) dessiner( quelque chose)?|dessine|dessiner|on dessine|fais moi dessiner|laisse moi dessiner)( dans l'air| en l'air| avec (mon|le) doigt)?$/.test(s)
+      || /^(dessine|dessiner|ecris|ecrire) (dans l'air|en l'air|avec (mon|le) doigt)$/.test(s)) return { open: true };
+    return null;
+  }
+  if (/^(ferme|quitte|sors?|arrete|termine|stop|coupe)( le| du| de)?( mode)?( dessin| tableau blanc| ardoise)?$/.test(s)) return { close: true };
+  if (/^(efface|vide)( tout| le dessin| l'ardoise| le tableau| tout le dessin| l'ecran)?$|^(on )?recommence$/.test(s)) return { clear: true };
+  if (/^(annule|retour( en arriere)?|efface le dernier( trait)?|enleve le dernier( trait)?|supprime le dernier( trait)?)$/.test(s)) return { undo: true };
+  let m = s.match(new RegExp(`^(?:(?:en|passe en|dessine en|ecris en|couleur|mets? (?:du|le)|change (?:de )?couleur(?: en| pour)?|prends? (?:le|du))\\s+)?(${DRAW_COLORS})$`));
+  if (m) return { color: m[1] === 'dore' ? 'or' : m[1] };
+  if (/^(change|autre) (de )?couleur$/.test(s)) return { color: '' };
+  if (/^(change|retourne|inverse|bascule)( de)?( la)? camera$/.test(s)) return { switchCamera: true };
+  return null;
+}

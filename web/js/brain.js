@@ -2,6 +2,7 @@
 // Groq (clé gratuite, ultra-rapide) → Claude (clé payante, optionnelle) → Gemini (clé gratuite) → Pollinations (sans clé, dernier recours).
 import { settings } from './settings.js';
 import { fetchJSON } from './services.js';
+import * as facts from './facts.js';
 
 const HISTORY_KEY = 'jarvis.history.v1';
 const MAX_HISTORY = 16;
@@ -28,6 +29,9 @@ ${ctx.playing ? `En cours de lecture : ${ctx.playing}.` : ''}
 ${ctx.screen ? `Actuellement affiché à l'écran : ${ctx.screen}.` : ''}
 ${ctx.table ? `Tableau actuellement affiché (JSON) : ${ctx.table}` : ''}
 ${ctx.mindmap ? `Carte mentale actuellement affichée (JSON) : ${ctx.mindmap}` : ''}
+${facts.forPrompt()}
+${ctx.draw ? `${ctx.draw} : l'utilisateur dessine dans l'air avec son doigt devant la caméra.` : ''}
+${ctx.ar ? `${ctx.ar} (vue en réalité augmentée ouverte en plein écran).` : ''}
 ${ctx.camera ? 'La caméra de l\'utilisateur est ouverte à l\'écran.' : ''}
 ${ctx.image ? `L'utilisateur a fourni une image récemment (${ctx.image}).` : ''}
 
@@ -65,6 +69,12 @@ Actions disponibles (0, 1 ou plusieurs) :
 - {"type":"arrange","items":[{"target":"video","x":0,"y":0,"w":60,"h":100},{"target":"recap","x":60,"y":0,"w":40,"h":50}]} : placer et dimensionner LIBREMENT les fenêtres affichées (x, y, w, h en % de la zone d'affichage). Cibles : photo, images, video, recap/tableau, fiche, meteo, minuteur, texte, camera, carte mentale, page.
 - {"type":"style","target":"...","accent":"couleur ou #hex","background":"glass|solid|transparent|glow|light","size":"small|normal|large|huge","title":"nouveau titre"} : changer l'apparence d'une fenêtre
 - {"type":"theme","accent":"couleur ou #hex (default pour revenir au cyan)","background":"aurora|dark|minimal|vivid"} : changer les couleurs et l'ambiance de toute l'interface
+- {"type":"ar","topic":"ce qu'il faut modéliser en 3D","image":"last|screen","image_query":"…","plan_from_image":true} : RÉALITÉ AUGMENTÉE. Projette un hologramme 3D par-dessus la caméra, que l'utilisateur manipule avec ses doigts (pincer pour tourner, poing pour déplacer, deux mains pour zoomer). "topic" = objet, machine, molécule, bâtiment, monument, organe, plan de maison ou d'appartement, système… (Jarvis construit la maquette 3D). "image":"last" (image envoyée) ou "screen" (image affichée) projette cette image en panneau flottant ; ajoute "plan_from_image":true pour transformer un plan dessiné en maquette 3D. "image_query" projette des photos trouvées en carrousel. Utilise-le dès que l'utilisateur parle de 3D, d'hologramme, de réalité augmentée, d'AR ou de projeter quelque chose.
+- {"type":"ar_update","zoom":1.5,"turn":45,"view":"top|front|side|back","holo":true,"spin":true,"reset":true,"close":true} : modifier l'hologramme affiché (ne mets que les champs utiles)
+- {"type":"remember","fact":"phrase courte à la première personne, ex. « Je suis allergique aux noix »"} : retenir durablement une information sur l'utilisateur (prénom, allergies, goûts, ville, proches, dates importantes, objectifs…). Utilise-le quand il te demande de retenir quelque chose, ou quand il partage spontanément une information personnelle durable et utile ; confirme-le en quelques mots. Jamais pour des choses passagères ni pour des mots de passe ou codes secrets.
+- {"type":"forget","fact":"ce qu'il faut oublier"} : oublier un souvenir (ou "all" pour tout oublier)
+- {"type":"memory"} : afficher tout ce que tu as retenu sur l'utilisateur
+- {"type":"draw"} : ouvrir le mode « dessin dans l'air » (l'utilisateur trace avec son index devant la caméra, puis tu transformes le croquis en schéma propre)
 - {"type":"minimize","target":"all|musique|video|photo|recap|camera|meteo|minuteur|fiche|texte"} : réduire des fenêtres dans la barre du bas (elles continuent de fonctionner)
 - {"type":"restore","target":"all|…"} : rouvrir des fenêtres réduites
 
@@ -91,7 +101,7 @@ function buildMessages(userText, ctx) {
 }
 
 // ---------- Fournisseurs ----------
-async function groq(messages, { json = true } = {}) {
+async function groq(messages, { json = true, maxTokens = 3000 } = {}) {
   const models = [...new Set([settings.groqModel, 'llama-3.3-70b-versatile', 'openai/gpt-oss-120b', 'llama-3.1-8b-instant'].filter(Boolean))];
   let err;
   for (const model of models) {
@@ -100,7 +110,7 @@ async function groq(messages, { json = true } = {}) {
         method: 'POST',
         timeout: 30000,
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${settings.groqKey}` },
-        body: JSON.stringify({ model, messages, temperature: 0.6, max_tokens: 3000, ...(json ? { response_format: { type: 'json_object' } } : {}) }),
+        body: JSON.stringify({ model, messages, temperature: 0.6, max_tokens: maxTokens, ...(json ? { response_format: { type: 'json_object' } } : {}) }),
       });
       return data.choices[0].message.content;
     } catch (e) { err = e; if (!/HTTP (400|404)/.test(e.message)) break; }
@@ -108,7 +118,7 @@ async function groq(messages, { json = true } = {}) {
   throw err;
 }
 
-async function gemini(messages, { json = true } = {}) {
+async function gemini(messages, { json = true, maxTokens = 3000 } = {}) {
   const system = messages.find((m) => m.role === 'system')?.content;
   const contents = messages.filter((m) => m.role !== 'system').map((m) => ({
     role: m.role === 'assistant' ? 'model' : 'user',
@@ -122,7 +132,7 @@ async function gemini(messages, { json = true } = {}) {
     body: JSON.stringify({
       systemInstruction: system ? { parts: [{ text: system }] } : undefined,
       contents,
-      generationConfig: { temperature: 0.6, maxOutputTokens: 3000, ...(json ? { responseMimeType: 'application/json' } : {}) },
+      generationConfig: { temperature: 0.6, maxOutputTokens: maxTokens, ...(json ? { responseMimeType: 'application/json' } : {}) },
     }),
   });
   return data.candidates?.[0]?.content?.parts?.map((p) => p.text).join('') || '';
@@ -146,7 +156,7 @@ async function pollinations(messages, { json = true } = {}) {
 }
 
 // Claude (Anthropic) : nécessite une clé API payante (console.anthropic.com), distincte de l'abonnement claude.ai.
-async function claude(messages) {
+async function claude(messages, { maxTokens = 3000 } = {}) {
   const system = messages.find((m) => m.role === 'system')?.content;
   const data = await fetchJSON('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -159,7 +169,7 @@ async function claude(messages) {
     },
     body: JSON.stringify({
       model: settings.claudeModel || 'claude-haiku-4-5',
-      max_tokens: 3000,
+      max_tokens: maxTokens,
       system,
       messages: messages.filter((m) => m.role !== 'system'),
     }),
@@ -333,7 +343,10 @@ export const canSee = () => !!(settings.geminiKey || settings.groqKey || setting
 export async function see(userText, image, ctx = {}) {
   const order = ['gemini', 'groq', 'claude'];
   if (VISION[settings.provider]) order.unshift(...order.splice(order.indexOf(settings.provider), 1));
-  const source = image.source === 'camera' ? 'caméra en direct de l’utilisateur' : image.source === 'upload' ? 'image envoyée par l’utilisateur' : 'image affichée à l’écran';
+  const source = image.source === 'camera' ? 'caméra en direct de l’utilisateur'
+    : image.source === 'upload' ? 'image envoyée par l’utilisateur'
+    : image.source === 'drawing' ? 'croquis que l’utilisateur vient de tracer dans l’air avec son doigt (traits imprécis et tremblés à interpréter avec bienveillance ; les couleurs distinguent parfois des éléments)'
+    : 'image affichée à l’écran';
   const messages = [
     { role: 'system', content: systemPrompt(ctx) + VISION_RULES.replace('SOURCE', source) },
     ...memory.history,
@@ -371,6 +384,54 @@ Illustrations et sources : mets un "image_query" (en anglais, précis) sur le su
   const text = String(raw).trim().replace(/^```(?:json)?\s*|\s*```$/g, '');
   const obj = JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1));
   return obj;
+}
+
+// ---------- Réalité augmentée : maquettes 3D ----------
+const AR_SCHEMA = `{"title":"titre court","speech":"une phrase qui présente la maquette","polyhaven":"","parts":[{"shape":"box|sphere|cylinder|cone|pyramid|torus|capsule|plane|line|label","pos":[x,y,z],"size":[…],"rot":[degX,degY,degZ],"color":"#hex","opacity":1,"glow":false,"label":"nom","spin":0,"orbit":0}],"plan":{"wall_height":2.5,"rooms":[{"name":"Salon","x":0,"z":0,"w":5,"d":4,"color":"#hex"}]}}`;
+const AR_RULES = `Règles de la maquette :
+- "parts" : 1 à 90 formes simples. size : box [largeur,hauteur,profondeur] ; sphere [rayon] ; cylinder, cone, pyramid [rayon,hauteur] ; torus [rayon,épaisseur] (anneau horizontal si rot [90,0,0]) ; capsule [rayon,longueur] ; plane [largeur,profondeur] (horizontal). "line" relie deux points : "from":[x,y,z],"to":[x,y,z],"size":[rayon] (liaisons chimiques, tiges, câbles, axes, pieds, branches). "label" seul = texte flottant à "pos".
+- Axe y vers le haut, unités libres (la maquette est redimensionnée automatiquement), centrée sur l'origine. "spin" = rotation propre (degrés/s) autour de l'axe vertical ; "orbit" = rotation (degrés/s) autour de l'axe vertical passant par l'origine (planètes, électrons, pales). "glow": true pour ce qui émet de la lumière.
+- Mets un "label" (1 à 3 mots) sur les 3 à 12 pièces importantes, pas sur toutes.
+- Qualité : proportions réalistes, couleurs cohérentes et contrastées, assez de pièces pour que l'objet soit immédiatement reconnaissable (un moteur, un avion, un château, une cellule, un cœur…). Molécules : sphères d'atomes aux couleurs CPK et "line" pour les liaisons.
+- "plan" seulement pour un plan de logement, de bureau, de salle, de jardin… : pièces en mètres ("x","z" = coin, "w" = largeur sur x, "d" = profondeur sur z), jointives sans chevauchement ; ajoute le mobilier principal dans "parts" avec les mêmes coordonnées (y = 0 au sol). Sinon omets "plan".
+- "polyhaven" : seulement pour un objet courant du quotidien (meuble, chaise, lampe, plante en pot, vase, outil, statue, rocher…), 1 à 3 mots-clés EN ANGLAIS pour chercher un vrai modèle photoréaliste dans la bibliothèque Poly Haven ; fournis quand même "parts" en secours. Sinon "".`;
+
+function parseJSON(raw) {
+  const text = String(raw || '').trim().replace(/^```(?:json)?\s*|\s*```$/g, '');
+  return JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1));
+}
+
+// Construit une maquette 3D (formes simples ou plan) d'un sujet, pour l'hologramme en réalité augmentée.
+export async function arSceneFor(topic, extra = '') {
+  const lang = settings.lang.startsWith('en') ? 'English' : 'français';
+  const messages = [
+    { role: 'system', content: `Tu es un modélisateur 3D. Tu construis des maquettes 3D lisibles à partir de formes simples, affichées en hologramme en réalité augmentée. Textes en ${lang}. Réponds uniquement en JSON : ${AR_SCHEMA}\n${AR_RULES}` },
+    { role: 'user', content: `Maquette 3D de : ${topic}${extra ? `\nPrécisions : ${extra}` : ''}` },
+  ];
+  return parseJSON(await complete(messages, { json: true, maxTokens: 7000 }));
+}
+
+// Transforme une image de plan (croquis, plan d'architecte, photo de plan) en maquette 3D.
+export async function arSceneFromImage(image, request = '') {
+  const order = ['gemini', 'groq', 'claude'];
+  if (VISION[settings.provider]) order.unshift(...order.splice(order.indexOf(settings.provider), 1));
+  const messages = [
+    { role: 'system', content: `Tu es un architecte et modélisateur 3D. Une image est jointe : un plan (logement, bâtiment, salle, jardin…) ou un schéma. Reconstruis-le en maquette 3D fidèle. Lis les noms des pièces et les cotes écrites ; sinon estime les dimensions en mètres d'après les proportions (une porte ≈ 0,9 m, un lit double ≈ 1,6 × 2 m). Si l'image n'est pas un plan, modélise en 3D l'objet ou le schéma représenté avec "parts". Réponds uniquement en JSON : ${AR_SCHEMA}\n${AR_RULES}` },
+    { role: 'user', content: request || 'Transforme ce plan en maquette 3D.' },
+  ];
+  let lastErr = new Error('Aucune IA capable de voir n’est configurée.');
+  for (const name of order) {
+    const p = VISION[name];
+    if (!p.ok(image)) continue;
+    try {
+      const raw = await p.fn(messages, image);
+      if (raw?.trim()) return parseJSON(raw);
+    } catch (e) {
+      lastErr = e;
+      console.warn(`[Jarvis] plan 3D ${name} a échoué :`, e.message);
+    }
+  }
+  throw lastErr;
 }
 
 // Génère une fiche d'étude structurée à partir de sources Wikipédia.

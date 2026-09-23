@@ -1,9 +1,12 @@
 // Orchestrateur de Jarvis : relie la voix, l'IA, les commandes locales et l'affichage.
 import { settings, saveSettings, defaults } from './settings.js';
 import { Voice, chime } from './voice.js';
-import { think, see, canSee, studyNotes, mindmapFor, memory, activeProviderLabel } from './brain.js';
+import { think, see, canSee, studyNotes, mindmapFor, arSceneFor, arSceneFromImage, memory, activeProviderLabel } from './brain.js';
+import * as ar from './ar.js';
+import * as draw from './draw.js';
+import * as facts from './facts.js';
 import * as camera from './camera.js';
-import { matchIntent, matchTableIntent, matchMindmapIntent } from './intents.js';
+import { matchIntent, matchTableIntent, matchMindmapIntent, matchARIntent, matchMemoryIntent, matchDrawIntent } from './intents.js';
 import * as mindmap from './mindmap.js';
 import * as tables from './tables.js';
 import { extractTable, renderMarkdown } from './markdown.js';
@@ -48,6 +51,8 @@ async function say(text, t = turn) {
   if (!text || t !== turn) return;
   ui.log('jarvis', text);
   ui.setLive(text, 'reply');
+  ar.caption(text);
+  draw.caption(text);
   await voice.speak(text);
 }
 
@@ -80,6 +85,34 @@ async function handle(raw, { spoken = false } = {}) {
     return;
   }
 
+  // Mémoire personnelle : retenir, afficher, oublier (instantané, sans IA).
+  const memCmd = matchMemoryIntent(text);
+  if (memCmd) {
+    await say(memCmd.remember ? ACTIONS.remember({ fact: memCmd.remember })
+      : memCmd.show ? ACTIONS.memory()
+        : ACTIONS.forget({ fact: memCmd.forgetAll ? 'all' : memCmd.forget }), t);
+    return;
+  }
+
+  // Dessin dans l'air : ouverture et commandes du mode dessin.
+  const drawCmd = matchDrawIntent(text, { open: draw.isOpen() });
+  if (drawCmd) {
+    await say(await ACTIONS.draw(drawCmd), t);
+    if (spoken && t === turn && voice.wakeEnabled) voice.followUp(6000);
+    return;
+  }
+
+  // Réalité augmentée : hologrammes 3D manipulables avec les doigts.
+  const arCmd = matchARIntent(text, { open: ar.isOpen(), canRestore: ar.canRestore() });
+  if (arCmd) {
+    if (arCmd.topic || arCmd.image || arCmd.imageQuery) setBusy(true);
+    const speech = await ACTIONS.ar(arCmd).catch((e) => { console.warn(e); return "La réalité augmentée n'a pas pu démarrer."; });
+    setBusy(false);
+    await say(speech, t);
+    if (spoken && t === turn && voice.wakeEnabled) voice.followUp(6000);
+    return;
+  }
+
   // Disposition des tableaux et affichage en grand : instantané, sans IA.
   const tableCmd = matchTableIntent(text, { hasTable: tables.hasTable(), canRestore: tables.canRestore() });
   if (tableCmd) {
@@ -94,6 +127,14 @@ async function handle(raw, { spoken = false } = {}) {
   }
 
   const local = matchIntent(text);
+  // Pendant le dessin, une demande qui n'est pas une commande simple porte sur le croquis (« transforme-le en schéma »).
+  if (draw.isOpen() && draw.hasStrokes() && (!local || local.actions.some((a) => a.type === 'look'))) {
+    setBusy(true);
+    const speech = await ACTIONS.draw_transform({ prompt: text });
+    setBusy(false);
+    await say(speech, t);
+    return;
+  }
   try {
     setBusy(true);
     if (local) {
@@ -101,7 +142,7 @@ async function handle(raw, { spoken = false } = {}) {
       setBusy(false);
       await say(local.speech || speech, t);
     } else {
-      const reply = await think(text, { playing: player.nowPlaying(), screen: ui.describeStage(), table: tables.describe(), mindmap: mindmap.describe(), ...visionContext() });
+      const reply = await think(text, { playing: player.nowPlaying(), screen: ui.describeStage(), table: tables.describe(), mindmap: mindmap.describe(), ar: ar.describe(), draw: draw.describe(), ...visionContext() });
       if (t !== turn) return;
       // Un tableau Markdown dans la réponse devient un vrai tableau récapitulatif.
       if (reply.display && !reply.actions.some((a) => a?.type === 'table')) {
@@ -183,7 +224,8 @@ const ACTIONS = {
       el('div', { class: 'actions-row' },
         chip('✨ Générer une image', () => handle(`génère une image de ${query}`)),
         chip('🎬 Vidéo', () => handle(`lance une vidéo sur ${query}`)),
-        chip('📚 Étudier', () => handle(`étudie ${query}`))));
+        chip('📚 Étudier', () => handle(`étudie ${query}`)),
+        chip('🥽 Projeter en AR', () => ACTIONS.ar({ items, title: query }).then((sp) => say(sp)))));
     return `Voici des images de ${query}.`;
   },
 
@@ -194,6 +236,7 @@ const ACTIONS = {
     const body = el('div', {}, status, img,
       el('div', { class: 'actions-row' },
         chip('🔁 Autre version', () => ACTIONS.generate_image({ prompt })),
+        chip('🥽 Projeter en AR', () => ACTIONS.ar({ src: url, title: prompt }).then((sp) => say(sp))),
         chip('↗️ Ouvrir', null, url)));
     img.onload = () => status.remove();
     img.onerror = () => { status.innerHTML = ''; status.append(el('p', {}, "Le générateur d'images gratuit est saturé, réessayez dans un instant.")); img.remove(); };
@@ -278,6 +321,7 @@ const ACTIONS = {
       el('div', { class: 'actions-row' },
         chip('🖼️ Images', () => handle(`montre-moi des images de ${topic}`)),
         chip('🎬 Vidéo explicative', () => handle(`lance une vidéo sur ${topic}`)),
+        chip('🥽 Voir en 3D', () => handle(`projette ${topic} en 3D`)),
         ...(wiki?.related || []).slice(0, 2).map((r) => chip(`📚 ${r}`, () => handle(`étudie ${r}`)))),
       wiki ? el('p', { class: 'sources' }, 'Source : ', el('a', { href: wiki.url, target: '_blank', rel: 'noopener' }, `Wikipédia — ${wiki.title}`)) : null);
     return notes?.speech || wiki?.summary.split(/(?<=[.!?])\s/).slice(0, 2).join(' ') || `Voici ma fiche sur ${topic}.`;
@@ -460,6 +504,139 @@ const ACTIONS = {
     return ui.restoreKind(t.includes('cam') ? 'camera' : kindsFor(t)) ? '' : `Je ne trouve pas d'élément « ${target} » réduit.`;
   },
 
+  // ---------- Mémoire personnelle ----------
+  remember({ fact }) {
+    const f = facts.add(fact);
+    if (!f) return "Je n'ai pas compris ce que je dois retenir.";
+    refreshMemoryCard();
+    return `C'est noté, je m'en souviendrai : « ${f.text} ».`;
+  },
+  forget({ fact = '' }) {
+    if (/^(all|tout)$/i.test(String(fact).trim())) {
+      const old = facts.clear();
+      if (!old.length) return "Je n'avais rien retenu sur vous.";
+      showMemory(old);
+      return `J'ai tout oublié : ${old.length} souvenir${old.length > 1 ? 's' : ''}. Vous pouvez encore annuler.`;
+    }
+    const gone = facts.forget(fact);
+    refreshMemoryCard();
+    return gone.length ? `C'est oublié : ${gone.map((f) => f.text).join(' ; ')}.` : "Je n'avais rien retenu à ce sujet.";
+  },
+  memory() {
+    showMemory();
+    const n = facts.count();
+    return n ? `Voici ce que j'ai retenu sur vous : ${n} souvenir${n > 1 ? 's' : ''}.` : 'Je n’ai encore rien retenu sur vous. Dites par exemple « souviens-toi que je suis végétarien ».';
+  },
+
+  // ---------- Dessin dans l'air ----------
+  async draw(a = {}) {
+    if (a.close) { draw.close(); return ''; }
+    if (!draw.isOpen()) {
+      if (ar.isOpen()) ar.close();
+      if (camera.isOpen()) camera.closeCamera(); // la caméra passe dans la vue de dessin
+      await draw.open({ onMic: toggleListen, onTransform: () => handle('transforme mon dessin en schéma propre') });
+      return "Levez l'index pour dessiner dans l'air, ouvrez la main pour lever le crayon. Dites-moi ensuite quoi en faire.";
+    }
+    if (a.clear) draw.clear();
+    if (a.undo && !draw.undo()) return "Il n'y a rien à annuler.";
+    if ('color' in a && !draw.setColor(a.color || undefined)) return `Je n'ai pas cette couleur. Essayez cyan, or, rose, vert, blanc, violet, rouge, bleu, jaune ou orange.`;
+    if (a.switchCamera) await draw.switchCamera();
+    return '';
+  },
+  async draw_transform({ prompt = '' } = {}) {
+    if (!draw.hasStrokes()) return "Dessinez d'abord quelque chose : levez l'index devant la caméra.";
+    if (!canSee()) { showOnboarding(); return "Pour comprendre votre dessin, j'ai besoin d'une IA capable de voir : une clé gratuite Groq ou Gemini."; }
+    const shot = draw.snapshot();
+    const neon = draw.preview();
+    const request = prompt || 'Transforme mon dessin en schéma propre.';
+    draw.setBusy(true);
+    try {
+      const reply = await see(`${request}
+
+[Consignes pour le croquis] Dis d'abord en une phrase ce que tu reconnais. Puis :
+- Par défaut (« transforme-le », « nettoie-le », « rends-le propre », « fais-en un schéma ») : redessine-le avec l'action "page" contenant un SVG net et fidèle (mêmes éléments, mêmes positions relatives, formes régulières : droites, cercles, rectangles, flèches, textes lisibles et bien orthographiés), fond sombre, traits cyan, or ou violet, avec un titre et des légendes utiles.
+- Écriture : retranscris le texte dans "display". Formule ou calcul : écris-le proprement dans "display" et résous-le si c'est demandé ou évident.
+- Schéma (organigramme, circuit, graphe, carte, plan) : identifie et nomme les éléments dans le SVG.
+- Objet, animal, personnage : dis ce que c'est ; « en 3D » → action "ar" avec "topic" ; « en vrai », « illustre-le » → action "generate_image" avec une description détaillée en anglais.`,
+      { dataUrl: shot, source: 'drawing', label: 'dessin dans l’air' },
+      { playing: player.nowPlaying(), screen: ui.describeStage(), table: tables.describe() });
+      draw.close();
+      const body = el('div', { class: 'vision' },
+        el('img', { class: 'vision-shot', src: neon, alt: 'Votre dessin', onclick: () => ui.lightbox([{ full: neon, thumb: neon, title: 'Votre dessin' }]) }),
+        reply.display ? el('div', { class: 'md', html: renderMarkdown(reply.display) }) : el('p', { class: 'md' }, reply.speech),
+        el('div', { class: 'actions-row' }, chip('✍️ Redessiner', () => ACTIONS.draw({ open: true }).then((sp) => say(sp)))));
+      ui.card(reply.title || 'Votre dessin', body, { icon: '✍️', kind: 'text' });
+      const speech = await runActions(reply.actions, request);
+      return reply.speech || speech || 'Voici votre schéma.';
+    } catch (e) {
+      console.warn(e);
+      draw.setBusy(false);
+      return "Je n'ai pas réussi à analyser votre dessin. Vérifiez qu'une clé Groq ou Gemini est configurée.";
+    }
+  },
+
+  // ---------- Réalité augmentée ----------
+  // Accepte les commandes locales (topic, image, imageQuery, planFromImage, zoom…) et l'action de l'IA (même champs, en snake_case).
+  async ar(a = {}) {
+    const topic = a.topic || a.subject || '';
+    const image = a.image || '';
+    const imageQuery = a.imageQuery || a.image_query || '';
+    const planFromImage = a.planFromImage || a.plan_from_image;
+    const wantsContent = topic || image || imageQuery || a.src || a.items || a.parts || a.plan || a.restore || a.open;
+    if (!wantsContent) return arControl(a);
+    if (!ar.isOpen()) {
+      if (draw.isOpen()) draw.close();
+      if (camera.isOpen()) camera.closeCamera(); // la caméra passe dans la vue AR
+      try { await ar.open({ onMic: toggleListen }); } catch { return "Je n'arrive pas à charger le moteur 3D. Vérifiez votre connexion internet."; }
+    }
+    if (a.open) return 'Réalité augmentée prête. Que voulez-vous projeter ?';
+    if (a.restore) return (await ar.restoreLast().catch(() => false)) ? '' : 'Réalité augmentée prête. Que voulez-vous projeter ?';
+    try {
+      if (a.parts || a.plan) return (await ar.showScene(a, a.title)) ? '' : "Je n'ai pas pu construire cette maquette.";
+      if (a.src) return (await ar.showImage(a.src, a.title || 'Image')) ? 'Image projetée.' : '';
+      if (a.items) return (await ar.showImages(a.items, a.title)) ? 'Images projetées. Pincez et glissez pour les faire défiler.' : "Ces images ne peuvent pas être projetées.";
+      if (image) {
+        const img = image === 'screen' ? await camera.imageFromScreen() : (camera.getLastImage() || await camera.imageFromScreen());
+        if (!img) { ar.setLoading(''); return "Envoyez-moi d'abord une image avec le trombone, un glisser-déposer ou Ctrl+V."; }
+        if (planFromImage) {
+          if (!canSee()) { ar.setLoading(''); showOnboarding(); return "Il me faut une IA capable de voir pour lire ce plan."; }
+          ar.setLoading('Lecture du plan et construction de la maquette…');
+          const scene = await arSceneFromImage(img, a.prompt || '');
+          return (await ar.showScene(scene, scene.title || 'Plan 3D')) ? (scene.speech || 'Voici votre plan en 3D.') : "Je n'ai pas réussi à reconstruire ce plan.";
+        }
+        return (await ar.showImage(img.dataUrl || img.url, img.label || 'Image')) ? 'Image projetée. Pincez pour la faire pivoter.' : '';
+      }
+      if (imageQuery) {
+        ar.setLoading(`Recherche d'images : ${imageQuery}…`);
+        const items = await svc.searchImages(imageQuery).catch(() => []);
+        const n = items.length ? await ar.showImages(items, imageQuery) : 0;
+        if (!n) ar.setLoading('');
+        return n ? `Voici ${imageQuery} en réalité augmentée. Pincez et glissez pour faire défiler.` : `Je n'ai pas trouvé d'images de ${imageQuery} à projeter.`;
+      }
+      const quick = ar.builtin(topic);
+      if (quick) { await ar.showScene(quick); return `Voici ${quick.speech || quick.title} en hologramme.`; }
+      if (!settings.groqKey && !settings.geminiKey && !settings.claudeKey) {
+        ar.setLoading('');
+        showOnboarding();
+        return "Pour modéliser n'importe quel sujet en 3D, activez d'abord mon intelligence. Sans elle, je sais projeter un atome, l'ADN, le système solaire, une molécule d'eau ou des formes simples.";
+      }
+      ar.setLoading(`Modélisation 3D : ${topic}…`);
+      const scene = await arSceneFor(topic, a.details || '');
+      if (!ar.isOpen()) return '';
+      if (scene.polyhaven) {
+        // Objet du quotidien : vrai modèle photoréaliste si la bibliothèque libre en a un.
+        const hit = await ar.findPolyHaven(scene.polyhaven).catch(() => null);
+        if (hit && await ar.showPolyHaven(hit).catch(() => false)) return scene.speech || `Voici ${topic} en réalité augmentée.`;
+      }
+      return (await ar.showScene(scene, scene.title || topic)) ? (scene.speech || `Voici ${topic} en hologramme.`) : `Je n'ai pas réussi à modéliser ${topic}.`;
+    } catch (e) {
+      console.warn(e);
+      ar.setLoading('');
+      return "Je n'ai pas pu afficher cet hologramme.";
+    }
+  },
+  async ar_update(a) { return arControl(a); },
+
   async camera({ on = true, switch: sw, place }) {
     if (sw) { await camera.switchCamera(); return ''; }
     if (!on) { camera.closeCamera(); return ''; }
@@ -518,11 +695,62 @@ const ACTIONS = {
   },
 };
 
+// ---------------- Carte « Mémoire » ----------------
+let memoryCard = null;
+function memoryBody(undoItems) {
+  const items = facts.list();
+  const input = el('input', { class: 'field', type: 'text', placeholder: 'Ajouter : « Je suis végétarien », « Ma sœur s’appelle Julie »…', maxlength: '300', 'aria-label': 'Nouveau souvenir' });
+  const addIt = () => { if (input.value.trim()) { facts.add(input.value); input.value = ''; } };
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addIt(); } });
+  return el('div', { class: 'memory' },
+    items.length
+      ? el('ul', { class: 'mem-list' }, items.slice().reverse().map((f) => el('li', {},
+        el('span', { class: 'mem-text' }, f.text),
+        el('small', {}, new Date(f.at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })),
+        el('button', { type: 'button', class: 'icon-btn mem-del', title: 'Oublier', 'aria-label': `Oublier : ${f.text}`, onclick: () => facts.remove(f.id), html: '<svg viewBox="0 0 24 24"><path d="M6.4 5 5 6.4 10.6 12 5 17.6 6.4 19l5.6-5.6 5.6 5.6 1.4-1.4-5.6-5.6L19 6.4 17.6 5 12 10.6z"/></svg>' }))))
+      : el('p', { class: 'mem-empty' }, 'Rien pour l’instant. Dites « souviens-toi que… » ou ajoutez un souvenir ci-dessous.'),
+    el('div', { class: 'mem-add' }, input, el('button', { type: 'button', class: 'primary', onclick: addIt }, 'Retenir')),
+    el('div', { class: 'actions-row' },
+      undoItems?.length ? chip('↩️ Annuler l’oubli', () => facts.restore(undoItems)) : null,
+      items.length ? chip('🧹 Tout oublier', () => { const old = facts.clear(); showMemory(old); }) : null),
+    el('p', { class: 'sources' }, 'Ces informations restent sur cet appareil et sont transmises à l’IA pour personnaliser mes réponses.'));
+}
+function showMemory(undoItems) {
+  if (memoryCard?.isConnected) {
+    memoryCard.querySelector('.memory')?.replaceWith(memoryBody(undoItems));
+    ui.restoreCard(memoryCard);
+    return memoryCard;
+  }
+  memoryCard = ui.card('Ce que je sais de vous', memoryBody(undoItems), { icon: '🧠', kind: 'memory', keep: true });
+  return memoryCard;
+}
+function refreshMemoryCard() {
+  const old = memoryCard?.isConnected && memoryCard.querySelector('.memory');
+  if (old) old.replaceWith(memoryBody());
+}
+facts.onChange(() => refreshMemoryCard());
+
+// Réglages de l'hologramme affiché (commandes locales et action « ar_update » de l'IA).
+function arControl(a = {}) {
+  if (!ar.isOpen()) return a.close ? '' : "Aucun hologramme n'est affiché. Dites par exemple « projette un atome en 3D ».";
+  if (a.close) { ar.close(); return ''; }
+  if (a.reset) ar.reset();
+  if (a.zoom) ar.zoom(+a.zoom || 1);
+  if (a.turn) Array.isArray(a.turn) ? ar.turn(...a.turn) : ar.turn(+a.turn || 0, 0);
+  if (a.view) ar.view(a.view);
+  if ('holo' in a) ar.setHolo(a.holo);
+  if ('spin' in a) ar.setAutoRotate(a.spin);
+  if ('hands' in a) ar.setHands(a.hands);
+  if (a.switchCamera) ar.switchCamera();
+  return '';
+}
+
 // Mots utilisés pour désigner un élément → types de cartes correspondants.
 function kindsFor(word = '') {
   const w = String(word).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   if (/carte mentale|mind ?map|mindmap|carte des idees|heuristique/.test(w)) return 'mindmap';
   if (/camera|webcam/.test(w)) return 'camera';
+  if (/memoire|souvenir/.test(w)) return 'memory';
   if (/page|infographie|affiche|frise|presentation|dashboard|tableau de bord/.test(w)) return 'page';
   if (/photo|image|illustration|dessin|creation/.test(w)) return 'photo|images';
   if (/images|galerie/.test(w)) return 'images|photo';
@@ -643,6 +871,7 @@ function visionContext() {
 
 // ---------------- Images envoyées (bouton, glisser-déposer, coller) ----------------
 async function receiveImage(file) {
+  if (/\.(glb|gltf)$/i.test(file?.name || '')) { receiveModel(file); return; }
   if (!file?.type?.startsWith('image/')) return;
   firstGesture();
   try {
@@ -654,11 +883,26 @@ async function receiveImage(file) {
         chip('🔎 Analyser', () => handle('analyse cette image')),
         chip('📚 Rechercher des infos', () => handle('fais des recherches à partir de cette image')),
         chip('🖼️ Images similaires', () => handle('trouve des images similaires à cette image')),
-        chip('📝 Lire le texte', () => handle('lis le texte de cette image'))));
+        chip('📝 Lire le texte', () => handle('lis le texte de cette image')),
+        chip('🥽 Projeter en AR', () => handle('projette cette image')),
+        chip('🏗️ Plan → 3D', () => handle('projette ce plan en 3D'))));
     ui.card(`Image · ${file.name || 'collée'}`, body, { icon: '🖼️', kind: 'photo' });
     await say('Image reçue. Que voulez-vous savoir ?');
   } catch {
     ui.errorCard("Je n'arrive pas à lire cette image.");
+  }
+}
+
+// Modèle 3D envoyé (.glb) : projeté directement en réalité augmentée.
+async function receiveModel(file) {
+  firstGesture();
+  try {
+    if (!ar.isOpen()) { if (camera.isOpen()) camera.closeCamera(); await ar.open({ onMic: toggleListen }); }
+    if (!ar.isOpen()) throw new Error('AR fermée');
+    await ar.showModel(URL.createObjectURL(file), file.name.replace(/\.\w+$/, ''));
+    await say('Modèle 3D projeté. Pincez pour le faire tourner.');
+  } catch {
+    ui.errorCard("Je n'arrive pas à lire ce modèle 3D (format .glb conseillé : un .gltf avec des fichiers séparés ne peut pas être envoyé seul).");
   }
 }
 
@@ -711,12 +955,14 @@ function bindUI() {
   // Images : bouton 📎, glisser-déposer sur la fenêtre, ou coller (Ctrl+V).
   $('attach').onclick = () => $('file').click();
   $('file').onchange = (e) => { receiveImage(e.target.files?.[0]); e.target.value = ''; };
+  $('btn-draw').onclick = () => (draw.isOpen() ? draw.close() : handle('mode dessin'));
+  $('show-memory').onclick = () => { $('settings').close(); showMemory(); };
   $('btn-camera').onclick = () => (camera.isOpen() ? camera.closeCamera() : handle('affiche ma caméra'));
   addEventListener('dragover', (e) => { if ([...(e.dataTransfer?.items || [])].some((i) => i.kind === 'file')) { e.preventDefault(); document.body.classList.add('dropping'); } });
   addEventListener('dragleave', (e) => { if (!e.relatedTarget) document.body.classList.remove('dropping'); });
   addEventListener('drop', (e) => {
     document.body.classList.remove('dropping');
-    const f = [...(e.dataTransfer?.files || [])].find((x) => x.type.startsWith('image/'));
+    const f = [...(e.dataTransfer?.files || [])].find((x) => x.type.startsWith('image/') || /\.(glb|gltf)$/i.test(x.name));
     if (f) { e.preventDefault(); receiveImage(f); }
   });
   addEventListener('paste', (e) => {
