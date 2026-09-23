@@ -7,6 +7,10 @@ import * as ui from './ui.js';
 const { el } = ui;
 const MAPLIBRE = 'https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist';
 const MAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
+// Photos aériennes (Esri World Imagery) et relief (Terrain Tiles, AWS) : gratuits, sans clé.
+const SAT_TILES = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+const DEM_TILES = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png';
+const CESIUM = 'https://cdn.jsdelivr.net/npm/cesium@1.145.0/Build/Cesium';
 const SKETCHFAB_API = 'https://static.sketchfab.com/api/sketchfab-viewer-1.12.1.js';
 const DEG = 180 / Math.PI;
 
@@ -27,7 +31,7 @@ function loadCSS(href) {
 }
 
 // ====================== Carte 3D ======================
-export async function createMap({ center, zoom = 16, pitch = 60, bearing = -20, holo = false, phone = false } = {}) {
+export async function createMap({ center, zoom = 16, pitch = 60, bearing = -20, holo = false, phone = false, satellite = false } = {}) {
   loadCSS(`${MAPLIBRE}/maplibre-gl.css`);
   await loadScript(`${MAPLIBRE}/maplibre-gl.js`);
   const box = el('div', { class: 'ar-layer ar-map' });
@@ -38,9 +42,9 @@ export async function createMap({ center, zoom = 16, pitch = 60, bearing = -20, 
   });
   const home = { center: [center.lon, center.lat], zoom, pitch, bearing };
   const layer = {
-    kind: 'map', el: box, map, holo, markers: [], route: null, flying: 0,
+    kind: 'map', style: satellite ? 'satellite' : 'plan', el: box, map, holo, markers: [], route: null, flying: 0,
     ready: new Promise((resolve, reject) => {
-      map.once('load', () => { styleMap(map, layer.holo); resolve(); });
+      map.once('load', () => { if (satellite) applySatellite(map); else styleMap(map, layer.holo); resolve(); });
       map.once('error', (e) => { if (!map.loaded()) reject(e?.error || new Error('Carte indisponible')); });
     }),
     rotate(yaw, pitchD) {
@@ -58,7 +62,7 @@ export async function createMap({ center, zoom = 16, pitch = 60, bearing = -20, 
       const p = { top: 0, front: 60, side: 75, back: 60, below: 0 }[name];
       if (p != null) map.easeTo({ pitch: p, bearing: name === 'back' ? map.getBearing() + 180 : map.getBearing(), duration: 700 });
     },
-    setHolo(on) { this.holo = on; if (map.isStyleLoaded()) styleMap(map, on); },
+    setHolo(on) { this.holo = on; if (this.style === 'plan' && map.isStyleLoaded()) styleMap(map, on); },
     tick(dt, { autoRotate }) { if (autoRotate && !this.flying) map.setBearing(map.getBearing() + dt * 6); },
     addMarker(p, label, cls = '') {
       const m = new window.maplibregl.Marker({ element: el('div', { class: `ar-pin ${cls}` }, el('span', {}, label)), anchor: 'bottom' })
@@ -124,6 +128,26 @@ export async function createMap({ center, zoom = 16, pitch = 60, bearing = -20, 
   return layer;
 }
 
+// Vue satellite : photos aériennes réelles posées sur le relief, immeubles translucides, noms lisibles.
+function applySatellite(map) {
+  map.addSource('sat', { type: 'raster', tiles: [SAT_TILES], tileSize: 256, maxzoom: 19, attribution: 'Imagerie © Esri, Maxar, Earthstar Geographics' });
+  map.addSource('dem', { type: 'raster-dem', tiles: [DEM_TILES], encoding: 'terrarium', tileSize: 256, maxzoom: 15, attribution: 'Relief : Terrain Tiles (AWS, Mapzen)' });
+  const layers = map.getStyle().layers;
+  const firstSymbol = layers.find((l) => l.type === 'symbol')?.id;
+  for (const l of layers) {
+    if (['fill', 'line', 'background', 'hillshade', 'raster'].includes(l.type)) map.setLayoutProperty(l.id, 'visibility', 'none');
+    if (l.type === 'symbol') {
+      try { map.setPaintProperty(l.id, 'text-color', '#ffffff'); map.setPaintProperty(l.id, 'text-halo-color', 'rgba(0,0,0,0.85)'); map.setPaintProperty(l.id, 'text-halo-width', 1.6); } catch { /* calque sans texte */ }
+    }
+  }
+  map.addLayer({ id: 'sat', type: 'raster', source: 'sat', paint: { 'raster-fade-duration': 0 } }, firstSymbol);
+  if (map.getLayer('building-3d')) {
+    map.setPaintProperty('building-3d', 'fill-extrusion-color', '#f4efe6');
+    map.setPaintProperty('building-3d', 'fill-extrusion-opacity', 0.45);
+  }
+  map.setTerrain({ source: 'dem', exaggeration: 1.15 });
+}
+
 // Couleurs de la carte : réalistes (style d'origine), ou hologramme (fond sombre, immeubles cyan lumineux).
 function styleMap(map, holo) {
   const orig = (map.__orig ||= {});
@@ -152,6 +176,144 @@ function styleMap(map, holo) {
     else if (l.type === 'fill' && l.id !== 'building') set(l.id, 'fill-color', /water/.test(l.id) ? '#0a2640' : '#081324');
     else if (l.type === 'line' && /road|street|highway|bridge|tunnel|path/.test(l.id)) set(l.id, 'line-color', '#1b6f94');
   }
+}
+
+// ====================== Villes 3D photoréalistes (Google, via Cesium ion) ======================
+const DEGR = Math.PI / 180;
+export async function createPhoto({ center, query = '', token, zoom = 16, pitch = 60, bearing = -20, phone = false } = {}) {
+  loadCSS(`${CESIUM}/Widgets/widgets.css`);
+  window.CESIUM_BASE_URL = `${CESIUM}/`;
+  await loadScript(`${CESIUM}/Cesium.js`);
+  const C = window.Cesium;
+  C.Ion.defaultAccessToken = token;
+  const box = el('div', { class: 'ar-layer ar-photo' });
+  const viewer = new C.Viewer(box, {
+    globe: false, baseLayerPicker: false, geocoder: false, homeButton: false, sceneModePicker: false, navigationHelpButton: false,
+    animation: false, timeline: false, fullscreenButton: false, infoBox: false, selectionIndicator: false,
+    skyBox: false, skyAtmosphere: false, msaaSamples: phone ? 1 : 4, contextOptions: { webgl: { alpha: true } },
+  });
+  viewer.scene.backgroundColor = C.Color.TRANSPARENT; // la caméra reste visible autour de la ville
+  viewer.scene.screenSpaceCameraController.enableInputs = false; // gestes gérés par Jarvis
+  viewer.resolutionScale = phone ? 0.8 : 1;
+  let tileset;
+  try {
+    tileset = await C.createGooglePhotorealistic3DTileset({ onlyUsingWithGoogleGeocoder: true });
+  } catch (e) {
+    viewer.destroy();
+    throw Object.assign(new Error('Jeton Cesium refusé ou villes 3D indisponibles'), { cause: e });
+  }
+  tileset.maximumScreenSpaceError = phone ? 24 : 16; // un peu moins de détails sur téléphone, bien plus fluide
+  viewer.scene.primitives.add(tileset);
+  // Les villes de Google s'utilisent avec le géocodeur de Google (conditions d'utilisation) : on recentre avec lui.
+  if (query) {
+    try {
+      const gc = new C.IonGeocoderService({ scene: viewer.scene, geocodeProviderType: C.IonGeocodeProviderType.GOOGLE });
+      const dest = (await gc.geocode(query))?.[0]?.destination;
+      const carto = dest instanceof C.Rectangle ? C.Rectangle.center(dest) : dest ? C.Cartographic.fromCartesian(dest) : null;
+      if (carto) center = { lat: C.Math.toDegrees(carto.latitude), lon: C.Math.toDegrees(carto.longitude) };
+    } catch (e) { console.warn('[Jarvis] géocodeur Google :', e); }
+  }
+
+  // Caméra en orbite autour d'un point au sol (même logique que les autres calques).
+  const rangeFor = (z) => Math.max(120, 40000000 / 2 ** z);
+  let orbit = { lon: center.lon, lat: center.lat, h: 0, heading: bearing * DEGR, pitch: -Math.max(12, Math.min(85, 90 - pitch)) * DEGR, range: rangeFor(zoom) };
+  const home = { ...orbit };
+  const apply = () => {
+    viewer.camera.lookAt(C.Cartesian3.fromDegrees(orbit.lon, orbit.lat, orbit.h), new C.HeadingPitchRange(orbit.heading, orbit.pitch, orbit.range));
+  };
+  apply();
+  // Hauteur réelle du sol au centre (villes en altitude), une fois les premières tuiles chargées.
+  const settle = () => viewer.scene.sampleHeightMostDetailed([C.Cartographic.fromDegrees(orbit.lon, orbit.lat)]).then(([c]) => {
+    if (Number.isFinite(c?.height)) { orbit.h = c.height; home.h = c.height; apply(); }
+  }).catch(() => {});
+  const onLoad = tileset.initialTilesLoaded.addEventListener(() => { onLoad(); settle(); });
+  const entities = [];
+  let flying = 0;
+  let route = null;
+  const layer = {
+    kind: 'photo', style: 'photo', el: box, viewer,
+    ready: new Promise((resolve) => { const off = tileset.initialTilesLoaded.addEventListener(() => { off(); resolve(); }); setTimeout(resolve, 15000); }),
+    rotate(yaw, pitchD) {
+      orbit.heading -= yaw;
+      orbit.pitch = Math.max(-89 * DEGR, Math.min(-4 * DEGR, orbit.pitch - pitchD));
+      apply();
+    },
+    move(dx, dy) {
+      const k = orbit.range * 0.0014; // mètres par pixel, à peu près
+      const e = (-dx * Math.cos(orbit.heading) + dy * Math.sin(orbit.heading)) * k;
+      const n = (dx * Math.sin(orbit.heading) + dy * Math.cos(orbit.heading)) * k;
+      orbit.lat += n / 111320;
+      orbit.lon += e / (111320 * Math.cos(orbit.lat * DEGR));
+      apply();
+    },
+    zoom(f) { orbit.range = Math.max(40, Math.min(3e6, orbit.range / f)); apply(); },
+    twist(a) { orbit.heading += a; apply(); },
+    reset() { this.stopFly(); if (route) this.fitRoute(); else { orbit = { ...home }; apply(); } },
+    view(name) {
+      const p = { top: -89, front: -30, side: -20, back: -30, below: -10 }[name];
+      if (p == null) return;
+      orbit.pitch = p * DEGR;
+      if (name === 'back') orbit.heading += Math.PI;
+      apply();
+    },
+    setHolo() {},
+    tick(dt, { autoRotate }) { if (autoRotate && !flying) { orbit.heading += dt * 0.08; apply(); } },
+    async showRoute(geometry, from, to) {
+      route = geometry;
+      entities.splice(0).forEach((x) => viewer.entities.remove(x));
+      entities.push(viewer.entities.add({
+        polyline: { positions: C.Cartesian3.fromDegreesArray(geometry.coordinates.flat()), width: 10, clampToGround: true,
+          material: new C.PolylineGlowMaterialProperty({ glowPower: 0.3, color: C.Color.fromCssColorString('#5fe8ff') }) },
+      }));
+      const pin = (p, text, color) => viewer.entities.add({
+        position: C.Cartesian3.fromDegrees(p.lon, p.lat, 0),
+        point: { pixelSize: 12, color: C.Color.fromCssColorString(color), outlineColor: C.Color.WHITE, outlineWidth: 2, heightReference: C.HeightReference.CLAMP_TO_GROUND, disableDepthTestDistance: Number.POSITIVE_INFINITY },
+        label: { text, font: '600 15px Inter, system-ui, sans-serif', fillColor: C.Color.fromCssColorString('#05080f'), showBackground: true, backgroundColor: C.Color.fromCssColorString(color),
+          pixelOffset: new C.Cartesian2(0, -24), heightReference: C.HeightReference.CLAMP_TO_GROUND, disableDepthTestDistance: Number.POSITIVE_INFINITY },
+      });
+      entities.push(pin(from, 'Départ', '#6fe3ff'), pin(to, 'Arrivée', '#ffc95c'));
+      this.fitRoute();
+    },
+    fitRoute() {
+      if (!route) return;
+      const c = route.coordinates;
+      const lons = c.map((x) => x[0]);
+      const lats = c.map((x) => x[1]);
+      const [w, e, s2, n] = [Math.min(...lons), Math.max(...lons), Math.min(...lats), Math.max(...lats)];
+      const span = Math.max((e - w) * 111320 * Math.cos(((n + s2) / 2) * DEGR), (n - s2) * 111320);
+      orbit = { ...orbit, lon: (w + e) / 2, lat: (s2 + n) / 2, pitch: -50 * DEGR, range: Math.max(400, span * 1.5) };
+      apply();
+    },
+    fly() {
+      if (!route) return;
+      this.stopFly();
+      const pts = route.coordinates;
+      const lens = [0];
+      for (let i = 1; i < pts.length; i++) lens.push(lens[i - 1] + Math.hypot((pts[i][0] - pts[i - 1][0]) * Math.cos(pts[i][1] * DEGR), pts[i][1] - pts[i - 1][1]));
+      const total = lens[lens.length - 1] || 1e-9;
+      const ms = Math.min(45000, Math.max(12000, total * 111320 * 8));
+      const at = (d) => {
+        let i = lens.findIndex((l) => l >= d);
+        if (i <= 0) i = 1;
+        const k = (d - lens[i - 1]) / Math.max(1e-12, lens[i] - lens[i - 1]);
+        return [pts[i - 1][0] + (pts[i][0] - pts[i - 1][0]) * k, pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * k];
+      };
+      const t0 = performance.now();
+      const step = (now) => {
+        const u = Math.min(1, (now - t0) / ms);
+        const p = at(u * total);
+        const q = at(Math.min(total, u * total + total * 0.03));
+        orbit = { ...orbit, lon: p[0], lat: p[1], range: 260, pitch: -28 * DEGR, heading: Math.atan2((q[0] - p[0]) * Math.cos(p[1] * DEGR), q[1] - p[1]) };
+        apply();
+        flying = u < 1 ? requestAnimationFrame(step) : 0;
+        if (!flying) this.fitRoute();
+      };
+      flying = requestAnimationFrame(step);
+    },
+    stopFly() { if (flying) cancelAnimationFrame(flying); flying = 0; },
+    destroy() { this.stopFly(); viewer.destroy(); box.remove(); },
+  };
+  return layer;
 }
 
 // ====================== Vrai modèle 3D (Sketchfab) ======================

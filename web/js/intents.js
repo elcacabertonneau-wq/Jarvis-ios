@@ -326,6 +326,9 @@ export function matchARIntent(input, { open = false, canRestore = false } = {}) 
   if (m) return { turn: { gauche: [-45, 0], droite: [45, 0], haut: [0, -45], bas: [0, 45] }[m[1]] };
   if (/^(retourne|renverse)( le| la)?$|^demi tour$/.test(s)) return { turn: [180, 0] };
   if (/^(un |montre moi un |montre m'en un |donne moi un )?(autre|suivant|prochain)( modele| objet| version)?$|^(change|autre) de modele$|^modele suivant$|^un autre$/.test(s)) return { nextModel: true };
+  let st = s.match(/^(?:(?:passe|mets|affiche|montre|bascule|change)(?: moi)?(?: en| la| le)? ?)?(?:vue |mode |rendu |version )?(google earth|photo ?realiste|photorealiste|realiste 3d|satellite|aerienne|vue du ciel|plan|carte)(?: 3 ?d)?$/);
+  if (st) return { mapStyle: /satellite|aerienne|ciel/.test(st[1]) ? 'satellite' : /plan|carte/.test(st[1]) ? 'plan' : 'photo' };
+  if (/^(comme|facon|style) google earth$|^en vrai$/.test(s)) return { mapStyle: 'photo' };
   if (/^(survole|survol|parcours|fais|lance|montre)( moi)?( le| l')?( survol| trajet| itineraire| parcours| chemin)( en vol| en 3 ?d)?$|^vol au dessus( du trajet)?$/.test(s)) return { fly: true };
   return null;
 }
@@ -370,8 +373,17 @@ export function matchDrawIntent(input, { open = false } = {}) {
 const MODE_RE = /[\s,]+(?:(?:à|a|en)\s+(pied|voiture|v[ée]lo|trottinette|moto)|en marchant|en roulant|en conduisant)\b.*$/i;
 const TAIL_3D = /[\s,]+(?:en |sur (?:une |la )?carte )?(?:3 ?d|relief|hologramme|a\.? ?r\.?|r[ée]alit[ée] augment[ée]e)$/i;
 const HOME_RE = /^(?:ici|chez moi|ma position|l[àa] o[uù] je suis|o[uù] je suis)$/i;
+// Rendu demandé : « comme Google Earth », « en photoréaliste » → photo ; « satellite », « vue aérienne » → satellite.
+const STYLE_RE = /[\s,]*(?:(?:en|avec|dans|sur|fa[çc]on|style|comme(?: (?:dans|sur))?|version|mode|vue)\s+)?(?:(google earth|photo[- ]?r[ée]alistes?|satellites?|a[ée]riennes?|vue du ciel|plan simple))\b/i;
+export function styleFrom(text = '') {
+  const m = String(text).match(STYLE_RE);
+  if (!m) return '';
+  return /satellite|a[ée]rienne|ciel/i.test(m[1]) ? 'satellite' : /plan/i.test(m[1]) ? 'plan' : 'photo';
+}
 export function matchGeoIntent(input) {
+  const style = styleFrom(input);
   let raw = clean(input).replace(TAIL_3D, '');
+  if (style) raw = raw.replace(new RegExp(STYLE_RE.source, 'gi'), ' ').replace(/\s+/g, ' ').replace(TAIL_3D, '').trim();
   const modeWord = raw.match(MODE_RE);
   const mode = modeWord ? (/voiture|moto|roulant|conduisant/i.test(modeWord[0]) ? 'car' : /v[ée]lo|trottinette/i.test(modeWord[0]) ? 'bike' : 'foot') : '';
   raw = raw.replace(MODE_RE, '').trim();
@@ -379,15 +391,28 @@ export function matchGeoIntent(input) {
   const from = (x) => (HOME_RE.test(x || '') ? '' : tidy(x));
   let m = raw.match(/^(?:(?:donne|montre|calcule|trouve|fais|affiche|projette|trace|cherche)(?:[- ]moi)?\s+)?(?:l'|l’|un |le |mon |ton )?(?:itin[ée]raire|trajet|chemin|parcours|route)\s+(?:(?:pour aller|pour me rendre|pour rejoindre)\s+)?(?:de |du |des |d'|d’|depuis )(.+?)\s+(?:à |a |au |aux |jusqu'?à |jusqu’à |vers |pour )(.+)$/i)
     || raw.match(/^comment (?:aller|me rendre|je vais|on va|rejoindre|venir)\s+(?:de |du |des |d'|d’|depuis )(.+?)\s+(?:à |a |au |aux |jusqu'?à |vers )(.+)$/i);
-  if (m) return { route: { from: from(m[1]), to: tidy(m[2]), mode } };
+  if (m) return { route: { from: from(m[1]), to: tidy(m[2]), mode, style } };
   m = raw.match(/^comment (?:aller|me rendre|je vais|on va|rejoindre|venir|y aller)\s+(?:à |a |au |aux |jusqu'?à |en |chez |vers )?(.+?)(?:\s+(?:depuis|en partant de|à partir de)\s+(.+))?$/i)
     || raw.match(/^(?:(?:donne|montre|calcule|trouve|fais|affiche|trace)(?:[- ]moi)?\s+)?(?:l'|l’|un |le )?(?:itin[ée]raire|trajet|chemin|route)\s+(?:pour (?:aller|me rendre)\s+)?(?:à |a |au |aux |vers |jusqu'?à |pour )(.+?)(?:\s+(?:depuis|en partant de|à partir de)\s+(.+))?$/i);
-  if (m) return { route: { from: from(m[2]), to: tidy(m[1]), mode } };
+  if (m) return { route: { from: from(m[2]), to: tidy(m[1]), mode, style } };
   m = raw.match(/^(?:(?:montre|affiche|projette|donne|ouvre|fais[- ]moi voir|je veux voir|je voudrais voir|fais|fait|cr[ée]e|g[ée]n[èe]re|construis|dessine|mod[ée]lise|visualise|pr[ée]pare|sors)(?:[- ]moi)?\s+)?(?:le |la |un |une |ton |ta )?(?:plan|carte|map|vue|maquette|mod[èe]le)(?: 3 ?d| en 3 ?d| en relief| a[ée]rienne)?\s+(?:de |d'|d’|du |des )(.+)$/i);
   // « maquette de … » / « modèle de … » sans 3D : seulement pour une ville ou un lieu, décidé plus bas par l'aiguillage.
   if (m && /^(?:.*\s)?(?:maquette|mod[èe]le)\b/i.test(raw.slice(0, raw.indexOf(m[1]))) && !/3 ?d|relief/i.test(input)) m = null;
+  // Formulations libres (dictée vocale : « faire un plan 3D de… », « je veux la carte en 3D de… ») : plan/carte + 3D + « de <lieu> ».
+  if (!m && /\b(?:plan|carte|map|vue)\b/i.test(raw) && (/3 ?d|relief/i.test(input) || style)) {
+    m = raw.match(/\b(?:plan|carte|map|vue a[ée]rienne)\b(?:\s+(?:3 ?d|en 3 ?d|en relief))?\s+(?:de |d'|d’|du |des )(.+)$/i);
+  }
+  // Sans « 3D », « fais un plan de… » est plutôt un plan de travail : seulement « montre / affiche le plan de <lieu> ».
+  const NOT_PLACE = /^(?:(?:un|une|mon|ma|mes|la|le|l'|l’)\s*)?(?:r[ée]vision|travail|cours|action|entra[iî]nement|repas|table|dissertation|expos[ée]|marketing|communication|business|bataille|match|s[ée]ance|projet|carri[èe]re|vie|semaine|journ[ée]e|mois|ann[ée]e|lecture|[ée]tude|financement|attaque|jeu|site|la classe)/i;
+  if (m && !/3 ?d|relief/i.test(input) && !style && (/^(?:fais|fait|faire|cr[ée]e|g[ée]n[èe]re|construis|pr[ée]pare|sors|dessine|mod[ée]lise)\b/i.test(raw) || NOT_PLACE.test(m[1]))) m = null;
+  if (m) m[1] = m[1].replace(/^(?:la |le )?(?:ville|cit[ée]|quartier|r[ée]gion|pays) (?:de |d'|d’|du )/i, '');
   if (m && !/appartement|maison|logement|studio|bureau|pi[èe]ce|chambre|cuisine|\bt\d\b|f\d\b|villa|loft|salle|immeuble invent|jardin/i.test(m[1])) {
-    return { map: tidy(m[1]) };
+    return { map: tidy(m[1]), style };
+  }
+  // « New York comme dans Google Earth », « Paris en satellite » : un lieu + un rendu, sans « plan » ni « carte ».
+  if (style) {
+    const p = raw.replace(/^(?:(?:montre|affiche|projette|donne|ouvre|fais[- ]moi voir|je veux voir|je voudrais voir|fais|faire|visualise)(?:[- ]moi)?\s+)?/i, '').replace(/^(?:de |d'|d’|du |des )/i, '').replace(/^(?:la ville de |le quartier de )/i, '').trim();
+    if (p && p.split(/\s+/).length <= 6 && !/\b(?:images?|photos?|vid[ée]os?|musique|dessins?|illustrations?)\b/i.test(p)) return { map: tidy(p), style };
   }
   return null;
 }

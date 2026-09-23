@@ -51,7 +51,8 @@ Jarvis choisit tout seul la meilleure source 3D pour chaque demande :
 
 | Dites… | Effet |
 |---|---|
-| « Montre-moi le plan de New York en 3D », « projette Tokyo », « carte de Rome » | **Vraie carte 3D** de la ville (OpenStreetMap) : immeubles en relief, rues, noms |
+| « Montre-moi le plan de New York en 3D », « projette Tokyo », « carte de Rome » | **Vraie ville en 3D** : photoréaliste façon Google Earth (avec un jeton Cesium ion gratuit), sinon photos satellite sur le relief réel |
+| « Montre-moi Paris comme dans Google Earth », « vue satellite de Rome » | Choix du rendu ; pendant la projection : « vue satellite », « photoréaliste », « mode plan » |
 | « Itinéraire de la tour Eiffel au Louvre à pied », « comment aller à la gare ? » | **Itinéraire complet** : durée, distance, étapes détaillées, infos pratiques de l'IA (transports en commun, prix, lieux à voir, conseils), tracé lumineux sur la carte 3D, **survol animé** du trajet, liens Plans / Google Maps |
 | « Projette une Ferrari F40 », « un cœur humain », « un T-rex », « une maquette de la tour Eiffel » | **Vrai modèle 3D** parmi des millions de modèles gratuits (Sketchfab) ; « autre modèle » pour en voir un autre |
 | « Projette une molécule de caféine », « le plan d'un appartement T3 » | Maquette construite par l'IA (formes, étiquettes, animations) |
@@ -59,6 +60,8 @@ Jarvis choisit tout seul la meilleure source 3D pour chaque demande :
 | « Projette des photos de la tour Eiffel », « projette cette image » | Images en panneau flottant ou en carrousel (seulement si vous demandez des photos) |
 | « Projette le système solaire / un atome / l'ADN » | Maquettes intégrées, instantanées et sans IA |
 | Envoyez un fichier **.glb** (📎 ou glisser-déposer) | Votre propre modèle 3D, avec ses animations |
+
+**Villes photoréalistes (façon Google Earth)** : créez un compte gratuit sur <https://ion.cesium.com/signup> (sans carte bancaire), ouvrez « Access Tokens », copiez le jeton « Default » et collez-le dans **⚙️ Réglages → Cartes 3D**. Jarvis affiche alors les vraies villes en 3D de Google (bâtiments, arbres, monuments texturés), posées sur l'image de la caméra. Sans jeton : photos satellite (Esri) sur le relief réel, avec les immeubles en volume ; ou « mode plan ».
 
 Les itinéraires fonctionnent à pied, à vélo et en voiture. « La gare », « une pharmacie », « l'hôpital » désignent le plus proche. Sans point de départ, Jarvis part de votre position.
 

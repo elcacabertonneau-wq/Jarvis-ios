@@ -11,6 +11,8 @@ export const defaults = {
   claudeKey: '',
   claudeModel: 'claude-haiku-4-5',
   youtubeKey: '',
+  cesiumToken: '', // Cesium ion (gratuit) : villes 3D photoréalistes de Google
+  mapStyle: 'auto', // auto | photo | satellite | plan
   lang: 'fr-FR',
   wakeName: 'jarvis',
   wakeMode: true, // écoute « Jarvis » en permanence par défaut

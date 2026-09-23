@@ -1043,6 +1043,9 @@ body.ar-open .composer .attach, body.ar-open .composer .hint { display: none; }
 .ar.has-panel .ar-layer { left: min(380px, 40%); }
 .ar-map { background: #0b1220; -webkit-mask-image: radial-gradient(ellipse 72% 70% at 50% 50%, #000 62%, transparent 100%); mask-image: radial-gradient(ellipse 72% 70% at 50% 50%, #000 62%, transparent 100%); }
 .ar-map .maplibregl-ctrl-attrib { font-size: 10px; opacity: .7; }
+.ar-photo { background: transparent; } /* ville photoréaliste posée directement sur l'image de la caméra */
+.ar-photo .cesium-viewer, .ar-photo .cesium-widget { width: 100%; height: 100%; }
+.ar-photo .cesium-viewer-bottom { font-size: 10px; }
 .ar-model iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; pointer-events: none; }
 .ar-credit { position: absolute; left: 12px; bottom: 10px; right: 12px; font-size: var(--fs-12); color: var(--text-2); text-shadow: 0 1px 4px #000; pointer-events: none; }
 .ar-pin { display: grid; place-items: center; }
