@@ -3,7 +3,8 @@
 // Three.js et le modèle de suivi des mains ne sont chargés qu'à la première ouverture.
 import * as ui from './ui.js';
 import { loadHands, BONES, detect } from './hands.js';
-import { createMap, createModel, searchModels } from './arlayers.js';
+import { createMap, createPhoto, createModel, searchModels } from './arlayers.js';
+import { settings } from './settings.js';
 
 const { el } = ui;
 const FIT = 1.8; // taille de l'hologramme (unités de la scène)
@@ -16,7 +17,7 @@ let S = null; // état de la vue AR ouverte
 let last = null; // dernier contenu affiché : { kind, data, title }
 
 export const isOpen = () => !!S;
-export const describe = () => (S ? `Réalité augmentée ouverte : ${S.layer?.kind === 'map' ? 'carte 3D' : S.layer?.kind === 'model' ? 'modèle 3D' : 'hologramme'} « ${S.title || 'vide'} »` : '');
+export const describe = () => (S ? `Réalité augmentée ouverte : ${S.layer?.kind === 'photo' ? 'ville 3D photoréaliste' : S.layer?.kind === 'map' ? `carte 3D (${S.layer.style})` : S.layer?.kind === 'model' ? 'modèle 3D' : 'hologramme'} « ${S.title || 'vide'} »` : '');
 export const canRestore = () => !!last;
 
 // ---------- Chargement paresseux ----------
@@ -259,32 +260,63 @@ function setLayer(layer, title) {
   st.vel = { x: 0, y: 0 };
 }
 
-// Carte 3D d'un lieu ({lat, lon}) : immeubles en relief, rues, noms.
-export async function showMap(place, { title = place.name || 'Carte 3D', zoom = 16, pitch = 60, bearing = -20 } = {}) {
+// Rendu demandé → rendu possible : le photoréaliste demande un jeton Cesium ion (gratuit).
+export function resolveStyle(style = '') {
+  const want = style || settings.mapStyle || 'auto';
+  if (want === 'auto') return settings.cesiumToken ? 'photo' : 'satellite';
+  if (want === 'photo' && !settings.cesiumToken) return 'satellite';
+  return ['photo', 'satellite', 'plan'].includes(want) ? want : 'satellite';
+}
+
+// Carte 3D d'un lieu ({lat, lon}) : ville photoréaliste, satellite avec relief, ou plan avec immeubles.
+export async function showMap(place, { title = place.name || 'Carte 3D', zoom = 16, pitch = 60, bearing = -20, style = '', query = '' } = {}) {
   if (!S) return null;
-  setLoading(`Chargement de la carte 3D : ${title}…`);
-  const layer = await createMap({ center: place, zoom, pitch, bearing, holo: S.holoMode, phone: isPhone() });
+  const st = resolveStyle(style);
+  S.mapCtx = { place, title, zoom, pitch, bearing, route: null };
+  setLoading(`${st === 'photo' ? 'Chargement de la ville en 3D photoréaliste' : st === 'satellite' ? 'Chargement des photos satellite' : 'Chargement de la carte 3D'} : ${title}…`);
+  let layer;
+  if (st === 'photo') {
+    try {
+      layer = await createPhoto({ center: place, query, token: settings.cesiumToken, zoom, pitch, bearing, phone: isPhone() });
+    } catch (e) {
+      console.warn(e);
+      caption('Villes 3D photoréalistes indisponibles (jeton Cesium refusé ?) : vue satellite à la place.');
+    }
+  }
+  layer ||= await createMap({ center: place, zoom, pitch, bearing, holo: S.holoMode, phone: isPhone(), satellite: st !== 'plan' });
   if (!S) { layer.destroy(); return null; }
   setLayer(layer, title);
-  layer.map.resize(); // la carte a été créée hors de la page : on lui donne sa vraie taille
+  layer.map?.resize(); // la carte a été créée hors de la page : on lui donne sa vraie taille
   S.autoRotate = true;
   updateButtons();
   try { await layer.ready; } finally { setLoading(''); }
-  last = { kind: 'map', data: { place, opts: { title, zoom, pitch, bearing } }, title };
+  last = { kind: 'map', data: { place, opts: { title, zoom, pitch, bearing, style } }, title };
   return layer;
 }
 
 // Itinéraire sur carte 3D : tracé lumineux, départ et arrivée, survol animé.
-export async function showRoute(r, from, to, title = 'Itinéraire') {
-  const layer = await showMap(from, { title, zoom: 14 });
+export async function showRoute(r, from, to, title = 'Itinéraire', style = '') {
+  const layer = await showMap(from, { title, zoom: 14, style });
   if (!layer) return null;
+  S.mapCtx.route = { r, from, to };
   S.autoRotate = false;
   updateButtons();
   await layer.showRoute(r.geometry, from, to);
   last = { kind: 'route', data: { r, from, to }, title };
   return layer;
 }
-export function flyRoute() { if (S?.layer?.kind === 'map') { S.autoRotate = false; updateButtons(); S.layer.fly(); return true; } return false; }
+
+// Change le rendu de la carte affichée (« vue satellite », « comme Google Earth », « vue plan »).
+export async function setMapStyle(style) {
+  if (!S?.mapCtx || !['map', 'photo'].includes(S.layer?.kind)) return 'Aucune carte n’est affichée.';
+  if (style === 'photo' && !settings.cesiumToken) return 'Pour les villes en 3D photoréaliste, ajoutez d’abord un jeton Cesium ion gratuit dans les réglages ⚙️ → Cartes 3D.';
+  const { place, title, zoom, pitch, bearing, route } = S.mapCtx;
+  if (route) await showRoute(route.r, route.from, route.to, title, style);
+  else await showMap(place, { title, zoom, pitch, bearing, style });
+  return '';
+}
+
+export function flyRoute() { if (S?.layer?.fly && S.mapCtx?.route) { S.autoRotate = false; updateButtons(); S.layer.fly(); return true; } return false; }
 
 // Vrai modèle 3D (Sketchfab). `models` : résultats de recherche ; `index` : lequel afficher.
 export async function showRealModel(models, index = 0, title = '') {
@@ -739,7 +771,7 @@ function bindPointer() {
     if (prev && cur.n === prev.n) {
       const dx = cur.x - prev.x;
       const dy = cur.y - prev.y;
-      const pan = st.layer?.kind === 'map' ? !p.shift : p.shift; // sur une carte, un doigt fait glisser la carte
+      const pan = ['map', 'photo'].includes(st.layer?.kind) ? !p.shift : p.shift; // sur une carte, un doigt fait glisser la carte
       if (cur.n === 1 && !pan) rotateBy(dx, dy);
       else if (cur.n === 1) moveBy(dx, dy);
       else {

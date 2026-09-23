@@ -178,6 +178,21 @@
       </fieldset>
 
       <fieldset>
+        <legend>Cartes 3D</legend>
+        <label>Rendu des villes
+          <select name="mapStyle">
+            <option value="auto">Automatique (photoréaliste si la clé est renseignée, sinon satellite)</option>
+            <option value="photo">Photoréaliste 3D (façon Google Earth)</option>
+            <option value="satellite">Satellite avec relief</option>
+            <option value="plan">Plan avec immeubles</option>
+          </select>
+        </label>
+        <label>Jeton Cesium ion <small>— gratuit, sans carte bancaire : créez un compte sur <a href="https://ion.cesium.com/signup" target="_blank" rel="noopener">ion.cesium.com</a>, puis « Access Tokens » → copiez le « Default » token. Il débloque les villes en 3D photoréaliste (Google).</small>
+          <input name="cesiumToken" type="password" placeholder="eyJhbGciOi…" autocomplete="off">
+        </label>
+      </fieldset>
+
+      <fieldset>
         <legend>Voix</legend>
         <label>Langue
           <select name="lang">

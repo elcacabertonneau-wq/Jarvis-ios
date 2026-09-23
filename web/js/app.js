@@ -7,7 +7,7 @@ import * as ar from './ar.js';
 import * as draw from './draw.js';
 import * as facts from './facts.js';
 import * as camera from './camera.js';
-import { matchIntent, matchTableIntent, matchMindmapIntent, matchARIntent, matchMemoryIntent, matchDrawIntent, matchGeoIntent } from './intents.js';
+import { matchIntent, matchTableIntent, matchMindmapIntent, matchARIntent, matchMemoryIntent, matchDrawIntent, matchGeoIntent, styleFrom } from './intents.js';
 import * as mindmap from './mindmap.js';
 import * as tables from './tables.js';
 import { extractTable, renderMarkdown } from './markdown.js';
@@ -107,7 +107,7 @@ async function handle(raw, { spoken = false } = {}) {
   const geoCmd = matchGeoIntent(text);
   if (geoCmd) {
     setBusy(true);
-    const speech = await (geoCmd.route ? ACTIONS.route(geoCmd.route) : ACTIONS.ar({ map: geoCmd.map })).catch((e) => { console.warn(e); return "Je n'ai pas pu afficher cette carte."; });
+    const speech = await (geoCmd.route ? ACTIONS.route(geoCmd.route) : ACTIONS.ar({ map: geoCmd.map, style: geoCmd.style })).catch((e) => { console.warn(e); return "Je n'ai pas pu afficher cette carte."; });
     setBusy(false);
     await say(speech, t);
     return;
@@ -602,7 +602,7 @@ const ACTIONS = {
     if (a.open) return 'Réalité augmentée prête. Que voulez-vous projeter ?';
     if (a.restore) return (await ar.restoreLast().catch(() => false)) ? '' : 'Réalité augmentée prête. Que voulez-vous projeter ?';
     try {
-      if (a.map) return await arMap(a.map);
+      if (a.map) return await arMap(a.map, { style: a.style || '' });
       if (a.parts || a.plan) return (await ar.showScene(a, a.title)) ? '' : "Je n'ai pas pu construire cette maquette.";
       if (a.src) return (await ar.showImage(a.src, a.title || 'Image')) ? 'Image projetée.' : '';
       if (a.items) return (await ar.showImages(a.items, a.title)) ? 'Images projetées. Pincez et glissez pour les faire défiler.' : "Ces images ne peuvent pas être projetées.";
@@ -629,15 +629,15 @@ const ACTIONS = {
 
       // Lieu ou trajet reconnu localement (y compris dans une demande reformulée par l'IA) : pas besoin d'aiguillage.
       const local = matchGeoIntent(request);
-      if (local?.map) return await arMap(local.map);
+      if (local?.map) return await arMap(local.map, { style: local.style || a.style || '' });
       if (local?.route) return await ACTIONS.route(local.route);
 
       // Aiguillage : vraie carte 3D, itinéraire, vrai modèle ou maquette construite.
       ar.setLoading('Je cherche la meilleure source 3D…');
       const plan = (hasAI() && await arPlan(request).catch((e) => { console.warn(e); return null; })) || await guessPlan(request);
       if (!ar.isOpen()) return '';
-      if (plan.kind === 'route' && plan.to) return await ACTIONS.route({ from: plan.from, to: plan.to, mode: plan.mode });
-      if (plan.kind === 'map') return await arMap(plan.place || request, { title: plan.title, zoom: +plan.zoom || 0, speech: plan.speech });
+      if (plan.kind === 'route' && plan.to) return await ACTIONS.route({ from: plan.from, to: plan.to, mode: plan.mode, style: plan.style || styleFrom(request) });
+      if (plan.kind === 'map') return await arMap(plan.place || request, { title: plan.title, zoom: +plan.zoom || 0, speech: plan.speech, style: plan.style || styleFrom(request) || a.style || '' });
       if (plan.kind === 'model') {
         const sp = await arRealModel(plan.model_query || request, plan.title || request, plan.speech);
         if (sp) return sp;
@@ -666,7 +666,7 @@ const ACTIONS = {
   },
 
   // Itinéraire complet : calcul, étapes, infos pratiques de l'IA, tracé sur carte 3D en réalité augmentée.
-  async route({ from = '', to = '', mode = '' } = {}) {
+  async route({ from = '', to = '', mode = '', style = '' } = {}) {
     if (!to) return 'Où voulez-vous aller ?';
     const err = await ensureAR();
     if (err) return err;
@@ -689,7 +689,7 @@ const ACTIONS = {
     const title = `${a.name} → ${b.name}`;
     const panel = routeBody(a, b, r, true);
     ar.setPanel(panel); // avant la carte : le cadrage du trajet tient compte du panneau
-    await ar.showRoute(r, a, b, title);
+    await ar.showRoute(r, a, b, title, style);
     const cardBody = routeBody(a, b, r, false);
     ui.card(`Itinéraire · ${title}`, cardBody, { icon: geo.MODES[m].icon, kind: 'text' });
     const dist = geo.fmtDistance(r.distance);
@@ -815,6 +815,7 @@ function arControl(a = {}) {
   if (a.switchCamera) ar.switchCamera();
   if (a.nextModel && !ar.nextModel()) return "Il n'y a pas d'autre modèle à montrer.";
   if (a.fly && !ar.flyRoute()) return "Il n'y a pas d'itinéraire à survoler.";
+  if (a.mapStyle) return ar.setMapStyle(a.mapStyle);
   return '';
 }
 
@@ -835,13 +836,20 @@ async function guessPlan(request) {
   return { kind: 'model', model_query: request, title: request };
 }
 
-async function arMap(place, { title = '', zoom = 0, speech = '' } = {}) {
+async function arMap(place, { title = '', zoom = 0, speech = '', style = '' } = {}) {
   ar.setPanel(null);
   ar.setLoading(`Recherche de ${place}…`);
   let g;
   try { g = await geo.geocode(place); } catch { ar.setLoading(''); return `Je ne trouve pas « ${place} » sur la carte.`; }
-  await ar.showMap(g, { title: title || g.label || g.name, zoom: zoom || geo.zoomFor(g) });
-  return speech || `Voici ${g.name} en 3D. Pincez pour tourner, faites un poing pour vous déplacer, deux mains pour zoomer.`;
+  const layer = await ar.showMap(g, { title: title || g.label || g.name, zoom: zoom || geo.zoomFor(g), style, query: place });
+  const got = layer?.style;
+  // Rendu photoréaliste demandé sans jeton : on l'explique une fois, la vue satellite est affichée en attendant.
+  const wantsPhoto = (style || ar.resolveStyle(style)) === 'photo' || (style === '' && settings.cesiumToken);
+  const hint = !wantsPhoto || got === 'photo' ? ''
+    : settings.cesiumToken ? ' Votre jeton Cesium ion a été refusé : vérifiez-le dans les réglages, rubrique Cartes 3D.'
+      : ' Pour la 3D photoréaliste façon Google Earth, ajoutez un jeton Cesium ion gratuit dans les réglages, rubrique Cartes 3D.';
+  const what = got === 'photo' ? 'en 3D photoréaliste' : got === 'satellite' ? 'en vue satellite avec relief' : 'en 3D';
+  return (speech && !hint ? speech : `Voici ${g.name} ${what}. Pincez pour tourner, faites un poing pour vous déplacer, deux mains pour zoomer.`) + hint;
 }
 
 // Vrai modèle 3D : recherche Sketchfab, affichage du plus pertinent et choix parmi les suivants.
