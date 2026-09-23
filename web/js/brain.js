@@ -48,6 +48,7 @@ Actions disponibles (0, 1 ou plusieurs) :
 - {"type":"table","title":"...","columns":["Col 1","Col 2",...],"rows":[["...","..."],...],"layout":"table|cards|list|compare","note":"source ou remarque courte (optionnel)"} : tableau récapitulatif propre, affiché en grand
 - {"type":"table_update","layout":"table|cards|list|compare","sort":{"column":"nom de colonne","order":"asc|desc"},"highlight":"colonne ou ligne","hide":["colonne"],"show_all":true,"transpose":true,"expand":true|false,"close":true} : modifier la disposition du tableau affiché (ne mets que les champs utiles)
 - {"type":"clear"} : effacer l'écran et revenir à l'accueil
+- {"type":"fullscreen","on":true|false} : passer l'application en plein écran ou en sortir
 
 Règles :
 - Si la demande nécessite une action, déclenche-la plutôt que de décrire ce que tu ferais.

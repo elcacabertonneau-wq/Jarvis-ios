@@ -4,6 +4,11 @@ const clean = (s) => s.trim().replace(/[.!?]+$/, '').replace(/^(s'il te plait|s'
 const obj = (s) => clean(s).replace(/^(de |des |du |d'|d’|la |le |les |l'|l’|une |un |sur |à propos de |a propos de )+/i, '').trim();
 
 const RULES = [
+  // Plein écran de l'application
+  [/^(?:(?:mets?|passe|affiche|lance|active)(?:[- ](?:toi|moi|jarvis|l'application|l'appli|l'écran|tout))*\s+)?(?:en )?plein[- ]écran$/i,
+    () => ({ actions: [{ type: 'fullscreen', on: true }], speech: '' })],
+  [/^(?:quitte|sors?|enl[èe]ve|d[ée]sactive|ferme|arr[êe]te|coupe)(?:[- ](?:du|le))?\s+(?:mode )?plein[- ]écran$|^(?:mode )?fen[êe]tre$/i,
+    () => ({ actions: [{ type: 'fullscreen', on: false }], speech: '' })],
   // Contrôle des médias
   [/^(stop|arr[eê]te(z)?( tout| la musique| la vid[ée]o| la radio)?|coupe (la musique|le son|la radio)|silence|tais[- ]toi|chut)$/i,
     () => ({ actions: [{ type: 'media', command: 'stop' }], speech: '' })],
@@ -101,7 +106,7 @@ export function matchTableIntent(input, { hasTable = false, canRestore = false }
   if (!hasTable) return null;
 
   if (/^(ferme|supprime|enleve|retire|efface|cache)( le| ce)? (tableau|recap|recapitulatif)$/.test(s)) return { close: true };
-  if (/^(agrandis|agrandir|agrandi|zoome|plein ecran|en grand|affiche (le |la |ca |ce )?en grand|mets (le |la |ca |ce )?en grand|montre (le |la |ca |ce )?en grand|affiche le en grand)/.test(s) || /\b(plein ecran|en grand)\b/.test(s)) return { expand: true };
+  if (/^(agrandis|agrandir|agrandi|zoome|en grand|affiche (le |la |ca |ce )?en grand|mets (le |la |ca |ce )?en grand|montre (le |la |ca |ce )?en grand|affiche le en grand)/.test(s) || /\ben grand\b/.test(s)) return { expand: true };
   if (/^(reduis|reduire|reduit|retrecis|rapetisse|en petit|remets (le |la |ca )?en petit|reviens$|range (le|la|ca))/.test(s) || /\ben petit\b/.test(s)) return { expand: false };
   if (/(inverse|echange|permute|intervertis|transpose|tourne)r?( les)? (lignes? et (les )?colonnes?|colonnes? et (les )?lignes?)|^transpose/.test(s)) return { transpose: true };
 
