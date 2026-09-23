@@ -26,6 +26,7 @@ Langue de réponse : ${settings.lang.startsWith('en') ? 'anglais' : 'français'}
 Date et heure actuelles : ${now.toLocaleString(settings.lang, { dateStyle: 'full', timeStyle: 'short' })}.
 ${ctx.playing ? `En cours de lecture : ${ctx.playing}.` : ''}
 ${ctx.screen ? `Actuellement affiché à l'écran : ${ctx.screen}.` : ''}
+${ctx.table ? `Tableau actuellement affiché (JSON) : ${ctx.table}` : ''}
 
 Tu contrôles une interface avec un écran et des lecteurs multimédia. Tu réponds TOUJOURS avec un unique objet JSON valide, sans texte autour :
 {
@@ -44,12 +45,17 @@ Actions disponibles (0, 1 ou plusieurs) :
 - {"type":"timer","seconds":N,"label":"..."}
 - {"type":"open","url":"https://..."} : ouvrir un site
 - {"type":"media","command":"pause|resume|stop|next|volume_up|volume_down"}
-- {"type":"clear"} : effacer l'écran
+- {"type":"table","title":"...","columns":["Col 1","Col 2",...],"rows":[["...","..."],...],"layout":"table|cards|list|compare","note":"source ou remarque courte (optionnel)"} : tableau récapitulatif propre, affiché en grand
+- {"type":"table_update","layout":"table|cards|list|compare","sort":{"column":"nom de colonne","order":"asc|desc"},"highlight":"colonne ou ligne","hide":["colonne"],"show_all":true,"transpose":true,"expand":true|false,"close":true} : modifier la disposition du tableau affiché (ne mets que les champs utiles)
+- {"type":"clear"} : effacer l'écran et revenir à l'accueil
 
 Règles :
 - Si la demande nécessite une action, déclenche-la plutôt que de décrire ce que tu ferais.
 - Pour les explications, le "speech" résume en une ou deux phrases et le "display" contient le détail bien structuré.
 - Pour une simple conversation, "display" peut être vide.
+- Pour tout récapitulatif, comparaison, classement, planning, bilan ou liste d'éléments avec plusieurs attributs : utilise l'action "table" (pas de tableau Markdown). 3 à 7 colonnes, la première colonne nomme l'élément, cellules courtes (chiffres avec unité), jusqu'à 20 lignes. Laisse alors "display" vide et résume oralement en une phrase.
+- Choisis la disposition : "table" par défaut, "compare" pour comparer 2 à 4 éléments, "cards" pour des fiches descriptives, "list" pour un classement ou des étapes.
+- Si l'utilisateur veut changer la disposition du tableau affiché (trier, inverser, cartes, liste, mettre en évidence, masquer une colonne), utilise "table_update". S'il veut changer son contenu (ajouter une colonne, des lignes, corriger), renvoie une action "table" complète avec les nouvelles données.
 - Ne mens jamais : si tu ne sais pas, dis-le.`;
 }
 
@@ -71,7 +77,7 @@ async function groq(messages, { json = true } = {}) {
         method: 'POST',
         timeout: 30000,
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${settings.groqKey}` },
-        body: JSON.stringify({ model, messages, temperature: 0.6, max_tokens: 2048, ...(json ? { response_format: { type: 'json_object' } } : {}) }),
+        body: JSON.stringify({ model, messages, temperature: 0.6, max_tokens: 3000, ...(json ? { response_format: { type: 'json_object' } } : {}) }),
       });
       return data.choices[0].message.content;
     } catch (e) { err = e; if (!/HTTP (400|404)/.test(e.message)) break; }
@@ -93,7 +99,7 @@ async function gemini(messages, { json = true } = {}) {
     body: JSON.stringify({
       systemInstruction: system ? { parts: [{ text: system }] } : undefined,
       contents,
-      generationConfig: { temperature: 0.6, maxOutputTokens: 2048, ...(json ? { responseMimeType: 'application/json' } : {}) },
+      generationConfig: { temperature: 0.6, maxOutputTokens: 3000, ...(json ? { responseMimeType: 'application/json' } : {}) },
     }),
   });
   return data.candidates?.[0]?.content?.parts?.map((p) => p.text).join('') || '';
@@ -130,7 +136,7 @@ async function claude(messages) {
     },
     body: JSON.stringify({
       model: settings.claudeModel || 'claude-haiku-4-5',
-      max_tokens: 2048,
+      max_tokens: 3000,
       system,
       messages: messages.filter((m) => m.role !== 'system'),
     }),
@@ -197,7 +203,9 @@ export async function think(userText, ctx = {}) {
   const raw = await complete(buildMessages(userText, ctx), { json: true });
   const reply = parseReply(raw);
   memory.push('user', userText);
-  memory.push('assistant', JSON.stringify({ speech: reply.speech, actions: reply.actions }));
+  // En mémoire, on résume les tableaux (le contenu complet est renvoyé à part quand il est affiché).
+  const brief = reply.actions.map((x) => (x?.type === 'table' ? { type: 'table', title: x.title, columns: x.columns, rows: (x.rows || []).length } : x));
+  memory.push('assistant', JSON.stringify({ speech: reply.speech, actions: brief }));
   return reply;
 }
 

@@ -1,9 +1,9 @@
 // Service worker : l'interface se charge instantanément et fonctionne hors ligne.
-const VERSION = 'jarvis-v3';
+const VERSION = 'jarvis-v4';
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest', 'css/style.css',
   'js/app.js', 'js/brain.js', 'js/intents.js', 'js/markdown.js', 'js/player.js',
-  'js/services.js', 'js/settings.js', 'js/ui.js', 'js/voice.js',
+  'js/services.js', 'js/settings.js', 'js/tables.js', 'js/ui.js', 'js/voice.js',
   'icons/icon.svg', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png',
 ];
 
