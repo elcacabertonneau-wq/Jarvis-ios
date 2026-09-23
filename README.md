@@ -19,7 +19,7 @@ Jarvis est une application web installable (PWA). Elle fonctionne sur **iPhone, 
 
 ### La voix
 - **Appui sur le micro** (ou sur le cercle, ou la barre Espace sur ordinateur) : Jarvis écoute une commande.
-- **Écoute permanente** (icône casque) : Jarvis écoute en continu et réagit quand il entend **« Jarvis »** (« Jarvis, mets du jazz »). Après une réponse, il écoute encore quelques secondes pour la suite, sans qu'il faille redire « Jarvis ».
+- **Détection de « Jarvis » activée par défaut** : Jarvis écoute en continu et réagit dès qu'il entend son nom, soit en une phrase (« Jarvis, mets du jazz »), soit en deux temps (« Jarvis » → bip → « quelle heure est-il ? »). Les autres conversations sont ignorées. Après une réponse, il écoute encore quelques secondes pour la suite, sans qu'il faille redire « Jarvis ». Sur iPhone, il faut toucher l'écran une fois à l'ouverture (règle de Safari pour le micro). L'icône casque coupe ou réactive cette écoute.
 - La musique baisse automatiquement quand Jarvis parle (sauf sur iPhone, où le volume ne peut pas être changé par une page web).
 - La reconnaissance et la synthèse vocales sont celles du navigateur, donc gratuites et sans clé.
 

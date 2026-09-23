@@ -11,7 +11,7 @@ export const normalize = (s) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ
 function wakeVariants() {
   const base = normalize(settings.wakeName || 'jarvis');
   const set = new Set([base]);
-  if (base === 'jarvis') ['jarvi', 'jarvise', 'jarviss', 'jar vis', 'jervis', 'djarvis', 'garvis', 'charvis', 'jarvis s'].forEach((v) => set.add(v));
+  if (base === 'jarvis') ['jarvi', 'jarvise', 'jarvisse', 'jarviss', 'jarvice', 'jarviz', 'jar vis', 'j arvis', 'jervis', 'gervis', 'djarvis', 'garvis', 'charvis', 'harvis', 'jarvis s'].forEach((v) => set.add(v));
   return [...set].sort((a, b) => b.length - a.length);
 }
 
@@ -91,6 +91,7 @@ export class Voice {
       if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
         this.wakeEnabled = false;
         this.capturing = false;
+        this.denied = true;
         this.onError("Accès au micro refusé. Autorisez le micro dans les réglages du navigateur.");
       } else if (e.error === 'network') {
         this.failures++;
@@ -103,16 +104,17 @@ export class Voice {
       this.running = false;
       this._emitState();
       if (this.speaking) return;
-      if ((this.wakeEnabled || this.capturing) && this.failures < 6) {
+      // En écoute permanente, on relance indéfiniment (avec un délai croissant en cas d'erreurs répétées).
+      if (this.wakeEnabled || (this.capturing && this.failures < 6)) {
         clearTimeout(this.restartTimer);
-        this.restartTimer = setTimeout(() => this._start(), this.failures ? 600 * this.failures : 120);
+        this.restartTimer = setTimeout(() => this._start(), this.failures ? Math.min(10000, 600 * this.failures) : 120);
       }
     };
     this.rec = rec;
   }
 
   _start() {
-    if (!this.rec || this.running || this.speaking) return;
+    if (!this.rec || this.running || this.speaking || document.hidden) return;
     this.rec.lang = settings.lang;
     try { this.rec.start(); } catch { /* déjà démarré */ }
   }
@@ -194,6 +196,13 @@ export class Voice {
   }
 
   // --- API publique ---
+  get listening() { return this.running; }
+
+  // Relance l'écoute si elle s'est arrêtée (retour sur l'app, geste de l'utilisateur…).
+  ensureListening() {
+    if (this.wakeEnabled && !this.running && !this.speaking) { this.failures = 0; this._start(); }
+  }
+
   setWake(on) {
     if (!this.supported) return false;
     this.wakeEnabled = on;
@@ -283,8 +292,12 @@ export class Voice {
         if (voice) u.voice = voice;
         u.rate = +settings.rate;
         u.pitch = +settings.pitch;
-        u.onend = next;
-        u.onerror = next;
+        // Sécurité : certains navigateurs n'émettent jamais « onend » ; sans ça l'écoute ne reprendrait pas.
+        let fired = false;
+        const go = () => { if (fired) return; fired = true; clearTimeout(guard); next(); };
+        const guard = setTimeout(go, 4000 + u.text.length * 90 / (+settings.rate || 1));
+        u.onend = go;
+        u.onerror = go;
         speechSynthesis.speak(u);
       };
       next();

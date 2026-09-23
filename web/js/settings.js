@@ -12,7 +12,7 @@ export const defaults = {
   youtubeKey: '',
   lang: 'fr-FR',
   wakeName: 'jarvis',
-  wakeMode: false,
+  wakeMode: true, // écoute « Jarvis » en permanence par défaut
   voiceURI: '',
   rate: 1.05,
   pitch: 0.9,

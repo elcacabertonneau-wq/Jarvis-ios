@@ -328,6 +328,11 @@ function showOnboarding() {
 function firstGesture() {
   voice.unlock();
   player.unlockAudio();
+  // Sur iPhone, le micro ne peut démarrer qu'après un premier toucher : on active l'écoute « Jarvis » à ce moment-là.
+  if (settings.wakeMode && voice.supported && !voice.denied) {
+    if (!voice.wakeEnabled) { voice.setWake(true); updateWakeButton(); refreshStatus(); }
+    else voice.ensureListening();
+  }
 }
 
 function updateWakeButton() {
@@ -368,7 +373,8 @@ function bindUI() {
   $('btn-wake').onclick = () => {
     firstGesture();
     if (!voice.supported) return toggleListen();
-    const on = !voice.wakeEnabled;
+    const on = !settings.wakeMode;
+    voice.denied = false;
     voice.setWake(on);
     saveSettings({ wakeMode: on });
     updateWakeButton();
@@ -388,7 +394,8 @@ function bindUI() {
     if (e.code === 'Space') { e.preventDefault(); toggleListen(); }
     if (e.key === 'Escape') { voice.stopSpeaking(); }
   });
-  document.addEventListener('pointerdown', firstGesture, { once: true });
+  document.addEventListener('pointerdown', firstGesture, { capture: true });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) voice.ensureListening(); });
   window.addEventListener('online', refreshStatus);
   window.addEventListener('offline', refreshStatus);
 }
@@ -451,6 +458,12 @@ function init() {
   const h = new Date().getHours();
   const hello = h < 5 ? 'Bonsoir' : h < 18 ? 'Bonjour' : 'Bonsoir';
   ui.setLive(`${hello}. Je suis à votre service.`, 'reply');
+  // Si le navigateur exige un geste avant d'ouvrir le micro (iPhone), on le demande clairement.
+  setTimeout(() => {
+    if (settings.wakeMode && voice.supported && !voice.listening && !voice.speaking) {
+      ui.setLive(`Touchez l'écran une fois : ensuite dites simplement « ${settings.wakeName} » pour me parler.`, 'reply');
+    }
+  }, 1500);
   if (!settings.groqKey && !settings.geminiKey && !settings.claudeKey) showOnboarding();
 
   if ('serviceWorker' in navigator && location.protocol === 'https:') {
