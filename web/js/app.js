@@ -177,7 +177,7 @@ async function handle(raw, { spoken = false } = {}) {
     if (fallback) await say(fallback, t);
     else {
       if (!settings.groqKey && !settings.geminiKey && !settings.claudeKey) showOnboarding();
-      else ui.errorCard("Je n'arrive pas à joindre mon IA pour le moment (quota atteint ou clé invalide ?). Vérifiez vos clés dans les réglages ⚙️.");
+      else ui.errorCard(`Je n'arrive pas à joindre mon IA — ${e.message}. Vérifiez vos clés dans les réglages ⚙️, ou ajoutez une clé Gemini gratuite en secours.`);
       await say("Désolé, je n'arrive pas à joindre mon intelligence artificielle pour le moment.", t);
     }
   } finally {

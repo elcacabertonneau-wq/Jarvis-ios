@@ -5,12 +5,14 @@ import { fetchJSON } from './services.js';
 import * as facts from './facts.js';
 
 const HISTORY_KEY = 'jarvis.history.v1';
-const MAX_HISTORY = 16;
+const MAX_HISTORY = 12;
 
 export const memory = {
-  history: (() => { try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]'); } catch { return []; } })(),
+  // Les anciens historiques (messages très longs) sont raccourcis au chargement.
+  history: (() => { try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]').slice(-MAX_HISTORY).map((m) => ({ role: m.role, content: String(m.content).slice(0, 600) })); } catch { return []; } })(),
   push(role, content) {
-    this.history.push({ role, content: String(content).slice(0, 2000) });
+    // Court : l'historique est renvoyé à chaque question et compte dans les quotas gratuits.
+    this.history.push({ role, content: String(content).slice(0, role === 'user' ? 600 : 500) });
     this.history = this.history.slice(-MAX_HISTORY);
     try { localStorage.setItem(HISTORY_KEY, JSON.stringify(this.history)); } catch { /* ignore */ }
   },
@@ -103,18 +105,39 @@ function buildMessages(userText, ctx) {
 
 // ---------- Fournisseurs ----------
 async function groq(messages, { json = true, maxTokens = 3000 } = {}) {
-  const models = [...new Set([settings.groqModel, 'llama-3.3-70b-versatile', 'openai/gpt-oss-120b', 'llama-3.1-8b-instant'].filter(Boolean))];
-  let err;
+  // Chaque modèle a son propre quota gratuit : si l'un est saturé, on passe au suivant.
+  const ids = await groqModelIds();
+  const models = [...new Set([settings.groqModel, 'llama-3.3-70b-versatile', 'openai/gpt-oss-120b', 'openai/gpt-oss-20b', 'llama-3.1-8b-instant'])]
+    .filter((m) => m && (!ids.length || ids.includes(m)));
+  let err = new Error('Aucun modèle Groq disponible');
   for (const model of models) {
-    try {
-      const data = await fetchJSON('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        timeout: 30000,
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${settings.groqKey}` },
-        body: JSON.stringify({ model, messages, temperature: 0.6, max_tokens: maxTokens, ...(json ? { response_format: { type: 'json_object' } } : {}) }),
-      });
-      return data.choices[0].message.content;
-    } catch (e) { err = e; if (!/HTTP (400|404)/.test(e.message)) break; }
+    let msgs = messages;
+    let tokens = maxTokens;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const data = await fetchJSON('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          timeout: 30000,
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${settings.groqKey}` },
+          body: JSON.stringify({ model, messages: msgs, temperature: 0.6, max_tokens: tokens, ...(json ? { response_format: { type: 'json_object' } } : {}) }),
+        });
+        const text = data.choices?.[0]?.message?.content || '';
+        if (text.trim()) return text.replace(/<think>[\s\S]*?<\/think>/g, '');
+        err = new Error('Réponse vide');
+        break;
+      } catch (e) {
+        err = e;
+        console.warn(`[Jarvis] Groq ${model} :`, e.message, e.detail || '');
+        if (e.status === 401 || e.status === 403) throw e; // clé refusée : inutile d'insister
+        // Requête trop grosse pour le quota par minute : on réessaie sans l'historique et avec une réponse plus courte.
+        if (e.status === 413 && attempt === 0) {
+          msgs = [messages[0], messages[messages.length - 1]];
+          tokens = Math.min(tokens, 1800);
+          continue;
+        }
+        break; // 429 (quota), 400/404 (modèle), 5xx : modèle suivant
+      }
+    }
   }
   throw err;
 }
@@ -252,8 +275,29 @@ export function activeProviderLabel() {
   return PROVIDERS[p]?.label || '—';
 }
 
+// Résumé des actions pour l'historique : le type et quelques champs courts (pas le contenu complet des pages, cartes…).
+function briefActions(actions = []) {
+  return actions.map((a) => {
+    const o = { type: a?.type };
+    for (const k of ['query', 'topic', 'request', 'title', 'city', 'prompt', 'from', 'to', 'fact', 'target', 'place']) if (a?.[k]) o[k] = String(a[k]).slice(0, 80);
+    return o;
+  });
+}
+
+// Garde la requête sous un budget de taille en retirant d'abord les plus anciens messages de l'historique.
+// (Les quotas gratuits comptent les caractères envoyés : un historique trop long faisait tout refuser.)
+function fitBudget(messages, maxChars = 16000) {
+  const out = messages.slice();
+  const size = () => out.reduce((n, m) => n + (typeof m.content === 'string' ? m.content.length : 2000), 0);
+  // On garde toujours les instructions (premier message) et la question (dernier).
+  while (size() > maxChars && out.length > 2) out.splice(1, 1);
+  return out;
+}
+
 async function complete(messages, opts) {
+  const failures = [];
   let lastErr;
+  messages = fitBudget(messages);
   for (const name of order()) {
     const p = PROVIDERS[name];
     if (!p.ok()) continue;
@@ -262,10 +306,11 @@ async function complete(messages, opts) {
       if (out && out.trim()) return out;
     } catch (e) {
       lastErr = e;
-      console.warn(`[Jarvis] ${name} a échoué :`, e.message);
+      console.warn(`[Jarvis] ${name} a échoué :`, e.message, e.detail || '');
+      failures.push(`${PROVIDERS[name].label} : ${explainError(e)}`);
     }
   }
-  throw lastErr || new Error('Aucune IA disponible');
+  throw failures.length ? Object.assign(new Error(failures.join(' · ')), { status: lastErr?.status }) : new Error('Aucune IA disponible');
 }
 
 export function parseReply(raw) {
@@ -293,8 +338,7 @@ export async function think(userText, ctx = {}) {
   const reply = parseReply(raw);
   memory.push('user', userText);
   // En mémoire, on résume les tableaux (le contenu complet est renvoyé à part quand il est affiché).
-  const brief = reply.actions.map((x) => (x?.type === 'table' ? { type: 'table', title: x.title, columns: x.columns, rows: (x.rows || []).length } : x));
-  memory.push('assistant', JSON.stringify({ speech: reply.speech, actions: brief }));
+  memory.push('assistant', JSON.stringify({ speech: reply.speech, actions: briefActions(reply.actions) }));
   return reply;
 }
 
@@ -411,7 +455,7 @@ export async function see(userText, image, ctx = {}) {
       const reply = parseReply(raw);
       reply.actions = reply.actions.filter((a) => a?.type !== 'look');
       memory.push('user', `[image : ${source}] ${userText}`);
-      memory.push('assistant', JSON.stringify({ speech: reply.speech, actions: reply.actions.map((a) => (a?.type === 'table' ? { type: 'table', title: a.title } : a)) }));
+      memory.push('assistant', JSON.stringify({ speech: reply.speech, actions: briefActions(reply.actions) }));
       return reply;
     } catch (e) {
       failures.push(`${VISION_LABEL[name]} : ${explainError(e)}`);
