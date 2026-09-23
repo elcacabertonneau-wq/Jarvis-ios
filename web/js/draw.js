@@ -105,9 +105,10 @@ function resize() {
   const h = st.root.clientHeight || innerHeight;
   const dpr = Math.min(devicePixelRatio || 1, 2);
   for (const c of [st.ink, st.overlay]) {
-    c.width = Math.round(w * dpr);
-    c.height = Math.round(h * dpr);
-    c.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
+    const r = c === st.overlay ? 1 : dpr; // le squelette des mains n'a pas besoin de la pleine résolution
+    c.width = Math.round(w * r);
+    c.height = Math.round(h * r);
+    c.getContext('2d').setTransform(r, 0, 0, r, 0, 0);
   }
   redraw();
 }
@@ -125,19 +126,24 @@ function strokePath(ctx, pts) {
   ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
 }
 
+// Halo lumineux sans ombre floue (shadowBlur est très lent sur iPhone) : un trait large et transparent sous le trait net.
 function paint(ctx, strokes, { glow = true } = {}) {
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
   for (const s of strokes) {
     if (!s.pts.length) continue;
+    strokePath(ctx, s.pts);
+    if (glow) {
+      ctx.strokeStyle = s.color;
+      ctx.globalAlpha = 0.22;
+      ctx.lineWidth = s.width * 3.2;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
     ctx.strokeStyle = s.color;
     ctx.lineWidth = s.width;
-    ctx.shadowColor = s.color;
-    ctx.shadowBlur = glow ? 14 : 0;
-    strokePath(ctx, s.pts);
     ctx.stroke();
   }
-  ctx.shadowBlur = 0;
 }
 
 function redraw() {
@@ -161,7 +167,8 @@ function extend(p) {
   const lastP = pts[pts.length - 1];
   if (Math.hypot(p.x - lastP.x, p.y - lastP.y) < 1.5) return;
   pts.push(p);
-  redraw();
+  // Seul le nouveau segment est dessiné ; le trait complet est redessiné proprement à la fin.
+  paint(st.ink.getContext('2d'), [{ ...st.current, pts: [lastP, p] }]);
 }
 
 function end() {
@@ -297,17 +304,13 @@ function drawCursor(hands, drawing) {
     ctx.arc(st.cursor.x, st.cursor.y, drawing ? 7 : 12, 0, Math.PI * 2);
     ctx.strokeStyle = color;
     ctx.lineWidth = 3;
-    ctx.shadowColor = color;
-    ctx.shadowBlur = 12;
     if (drawing) { ctx.fillStyle = color; ctx.fill(); } else ctx.stroke();
-    ctx.shadowBlur = 0;
   }
 }
 
 function trackHands(now) {
   const st = S;
-  if (!st.hands || !st.stream || st.video.readyState < 2 || st.video.currentTime === st.lastVideoTime) return;
-  st.lastVideoTime = st.video.currentTime;
+  if (!st.hands || !st.stream || st.video.readyState < 2) return;
   const hands = detect(st.hands, st.video, now, { W: st.root.clientWidth, H: st.root.clientHeight, mirror: st.facing === 'user' });
   if (!hands) return;
   // Main qui dessine : celle qui pointe l'index, sinon la première.

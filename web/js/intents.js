@@ -325,6 +325,8 @@ export function matchARIntent(input, { open = false, canRestore = false } = {}) 
   m = s.match(/^(?:tourne|pivote|fais tourner)(?: le| la| l'hologramme)? (?:vers |a |sur )?(?:la )?(gauche|droite|haut|bas)$/);
   if (m) return { turn: { gauche: [-45, 0], droite: [45, 0], haut: [0, -45], bas: [0, 45] }[m[1]] };
   if (/^(retourne|renverse)( le| la)?$|^demi tour$/.test(s)) return { turn: [180, 0] };
+  if (/^(un |montre moi un |montre m'en un |donne moi un )?(autre|suivant|prochain)( modele| objet| version)?$|^(change|autre) de modele$|^modele suivant$|^un autre$/.test(s)) return { nextModel: true };
+  if (/^(survole|survol|parcours|fais|lance|montre)( moi)?( le| l')?( survol| trajet| itineraire| parcours| chemin)( en vol| en 3 ?d)?$|^vol au dessus( du trajet)?$/.test(s)) return { fly: true };
   return null;
 }
 
@@ -361,5 +363,29 @@ export function matchDrawIntent(input, { open = false } = {}) {
   if (m) return { color: m[1] === 'dore' ? 'or' : m[1] };
   if (/^(change|autre) (de )?couleur$/.test(s)) return { color: '' };
   if (/^(change|retourne|inverse|bascule)( de)?( la)? camera$/.test(s)) return { switchCamera: true };
+  return null;
+}
+
+// ---------- Cartes 3D et itinéraires ----------
+const MODE_RE = /[\s,]+(?:(?:à|a|en)\s+(pied|voiture|v[ée]lo|trottinette|moto)|en marchant|en roulant|en conduisant)\b.*$/i;
+const TAIL_3D = /[\s,]+(?:en |sur (?:une |la )?carte )?(?:3 ?d|relief|hologramme|a\.? ?r\.?|r[ée]alit[ée] augment[ée]e)$/i;
+const HOME_RE = /^(?:ici|chez moi|ma position|l[àa] o[uù] je suis|o[uù] je suis)$/i;
+export function matchGeoIntent(input) {
+  let raw = clean(input).replace(TAIL_3D, '');
+  const modeWord = raw.match(MODE_RE);
+  const mode = modeWord ? (/voiture|moto|roulant|conduisant/i.test(modeWord[0]) ? 'car' : /v[ée]lo|trottinette/i.test(modeWord[0]) ? 'bike' : 'foot') : '';
+  raw = raw.replace(MODE_RE, '').trim();
+  const tidy = (x = '') => x.replace(/^(?:la |le |les |l'|l’)/i, '').trim();
+  const from = (x) => (HOME_RE.test(x || '') ? '' : tidy(x));
+  let m = raw.match(/^(?:(?:donne|montre|calcule|trouve|fais|affiche|projette|trace|cherche)(?:[- ]moi)?\s+)?(?:l'|l’|un |le |mon |ton )?(?:itin[ée]raire|trajet|chemin|parcours|route)\s+(?:(?:pour aller|pour me rendre|pour rejoindre)\s+)?(?:de |du |des |d'|d’|depuis )(.+?)\s+(?:à |a |au |aux |jusqu'?à |jusqu’à |vers |pour )(.+)$/i)
+    || raw.match(/^comment (?:aller|me rendre|je vais|on va|rejoindre|venir)\s+(?:de |du |des |d'|d’|depuis )(.+?)\s+(?:à |a |au |aux |jusqu'?à |vers )(.+)$/i);
+  if (m) return { route: { from: from(m[1]), to: tidy(m[2]), mode } };
+  m = raw.match(/^comment (?:aller|me rendre|je vais|on va|rejoindre|venir|y aller)\s+(?:à |a |au |aux |jusqu'?à |en |chez |vers )?(.+?)(?:\s+(?:depuis|en partant de|à partir de)\s+(.+))?$/i)
+    || raw.match(/^(?:(?:donne|montre|calcule|trouve|fais|affiche|trace)(?:[- ]moi)?\s+)?(?:l'|l’|un |le )?(?:itin[ée]raire|trajet|chemin|route)\s+(?:pour (?:aller|me rendre)\s+)?(?:à |a |au |aux |vers |jusqu'?à |pour )(.+?)(?:\s+(?:depuis|en partant de|à partir de)\s+(.+))?$/i);
+  if (m) return { route: { from: from(m[2]), to: tidy(m[1]), mode } };
+  m = raw.match(/^(?:(?:montre|affiche|projette|donne|ouvre|fais[- ]moi voir|je veux voir)(?:[- ]moi)?\s+)?(?:le |la |un |une )?(?:plan|carte|map|vue 3 ?d)(?: 3 ?d| en 3 ?d| en relief)?\s+(?:de |d'|d’|du |des )(.+)$/i);
+  if (m && !/appartement|maison|logement|studio|bureau|pi[èe]ce|chambre|cuisine|\bt\d\b|f\d\b|villa|loft|salle|immeuble invent|jardin/i.test(m[1])) {
+    return { map: tidy(m[1]) };
+  }
   return null;
 }

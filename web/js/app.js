@@ -1,12 +1,13 @@
 // Orchestrateur de Jarvis : relie la voix, l'IA, les commandes locales et l'affichage.
 import { settings, saveSettings, defaults } from './settings.js';
 import { Voice, chime } from './voice.js';
-import { think, see, explainError, canSee, studyNotes, mindmapFor, arSceneFor, arSceneFromImage, memory, activeProviderLabel } from './brain.js';
+import { think, see, explainError, canSee, studyNotes, mindmapFor, arSceneFor, arSceneFromImage, arPlan, routeInfo, memory, activeProviderLabel } from './brain.js';
+import * as geo from './geo.js';
 import * as ar from './ar.js';
 import * as draw from './draw.js';
 import * as facts from './facts.js';
 import * as camera from './camera.js';
-import { matchIntent, matchTableIntent, matchMindmapIntent, matchARIntent, matchMemoryIntent, matchDrawIntent } from './intents.js';
+import { matchIntent, matchTableIntent, matchMindmapIntent, matchARIntent, matchMemoryIntent, matchDrawIntent, matchGeoIntent } from './intents.js';
 import * as mindmap from './mindmap.js';
 import * as tables from './tables.js';
 import { extractTable, renderMarkdown } from './markdown.js';
@@ -99,6 +100,16 @@ async function handle(raw, { spoken = false } = {}) {
   if (drawCmd) {
     await say(await ACTIONS.draw(drawCmd), t);
     if (spoken && t === turn && voice.wakeEnabled) voice.followUp(6000);
+    return;
+  }
+
+  // Itinéraires et cartes 3D de lieux réels.
+  const geoCmd = matchGeoIntent(text);
+  if (geoCmd) {
+    setBusy(true);
+    const speech = await (geoCmd.route ? ACTIONS.route(geoCmd.route) : ACTIONS.ar({ map: geoCmd.map })).catch((e) => { console.warn(e); return "Je n'ai pas pu afficher cette carte."; });
+    setBusy(false);
+    await say(speech, t);
     return;
   }
 
@@ -580,20 +591,18 @@ const ACTIONS = {
   // ---------- Réalité augmentée ----------
   // Accepte les commandes locales (topic, image, imageQuery, planFromImage, zoom…) et l'action de l'IA (même champs, en snake_case).
   async ar(a = {}) {
-    const topic = a.topic || a.subject || '';
+    const request = a.request || a.topic || a.subject || '';
     const image = a.image || '';
     const imageQuery = a.imageQuery || a.image_query || '';
     const planFromImage = a.planFromImage || a.plan_from_image;
-    const wantsContent = topic || image || imageQuery || a.src || a.items || a.parts || a.plan || a.restore || a.open;
+    const wantsContent = request || a.map || image || imageQuery || a.src || a.items || a.parts || a.plan || a.restore || a.open;
     if (!wantsContent) return arControl(a);
-    if (!ar.isOpen()) {
-      if (draw.isOpen()) draw.close();
-      if (camera.isOpen()) camera.closeCamera(); // la caméra passe dans la vue AR
-      try { await ar.open({ onMic: toggleListen }); } catch { return "Je n'arrive pas à charger le moteur 3D. Vérifiez votre connexion internet."; }
-    }
+    const err = await ensureAR();
+    if (err) return err;
     if (a.open) return 'Réalité augmentée prête. Que voulez-vous projeter ?';
     if (a.restore) return (await ar.restoreLast().catch(() => false)) ? '' : 'Réalité augmentée prête. Que voulez-vous projeter ?';
     try {
+      if (a.map) return await arMap(a.map);
       if (a.parts || a.plan) return (await ar.showScene(a, a.title)) ? '' : "Je n'ai pas pu construire cette maquette.";
       if (a.src) return (await ar.showImage(a.src, a.title || 'Image')) ? 'Image projetée.' : '';
       if (a.items) return (await ar.showImages(a.items, a.title)) ? 'Images projetées. Pincez et glissez pour les faire défiler.' : "Ces images ne peuvent pas être projetées.";
@@ -615,13 +624,26 @@ const ACTIONS = {
         if (!n) ar.setLoading('');
         return n ? `Voici ${imageQuery} en réalité augmentée. Pincez et glissez pour faire défiler.` : `Je n'ai pas trouvé d'images de ${imageQuery} à projeter.`;
       }
-      const quick = ar.builtin(topic);
-      if (quick) { await ar.showScene(quick); return `Voici ${quick.speech || quick.title} en hologramme.`; }
-      if (!settings.groqKey && !settings.geminiKey && !settings.claudeKey) {
+      const quick = ar.builtin(request);
+      if (quick) { ar.setPanel(null); await ar.showScene(quick); return `Voici ${quick.speech || quick.title} en hologramme.`; }
+
+      // Aiguillage : vraie carte 3D, itinéraire, vrai modèle ou maquette construite.
+      ar.setLoading('Je cherche la meilleure source 3D…');
+      const plan = (hasAI() && await arPlan(request).catch((e) => { console.warn(e); return null; })) || await guessPlan(request);
+      if (!ar.isOpen()) return '';
+      if (plan.kind === 'route' && plan.to) return await ACTIONS.route({ from: plan.from, to: plan.to, mode: plan.mode });
+      if (plan.kind === 'map') return await arMap(plan.place || request, { title: plan.title, zoom: +plan.zoom || 0, speech: plan.speech });
+      if (plan.kind === 'model') {
+        const sp = await arRealModel(plan.model_query || request, plan.title || request, plan.speech);
+        if (sp) return sp;
+      }
+      if (!hasAI()) {
         ar.setLoading('');
         showOnboarding();
-        return "Pour modéliser n'importe quel sujet en 3D, activez d'abord mon intelligence. Sans elle, je sais projeter un atome, l'ADN, le système solaire, une molécule d'eau ou des formes simples.";
+        return "Je n'ai pas trouvé de modèle 3D. Pour construire n'importe quelle maquette, activez d'abord mon intelligence.";
       }
+      const topic = plan.topic || request;
+      ar.setPanel(null);
       ar.setLoading(`Modélisation 3D : ${topic}…`);
       const scene = await arSceneFor(topic, a.details || '');
       if (!ar.isOpen()) return '';
@@ -634,9 +656,50 @@ const ACTIONS = {
     } catch (e) {
       console.warn(e);
       ar.setLoading('');
-      return "Je n'ai pas pu afficher cet hologramme.";
+      return `Je n'ai pas pu afficher cet hologramme (${explainError(e)}).`;
     }
   },
+
+  // Itinéraire complet : calcul, étapes, infos pratiques de l'IA, tracé sur carte 3D en réalité augmentée.
+  async route({ from = '', to = '', mode = '' } = {}) {
+    if (!to) return 'Où voulez-vous aller ?';
+    const err = await ensureAR();
+    if (err) return err;
+    ar.setPanel(null);
+    ar.setLoading('Calcul de l’itinéraire…');
+    let a;
+    let b;
+    try {
+      a = typeof from === 'object' && from ? from : from ? await geo.geocode(from) : await geo.currentPosition();
+    } catch {
+      ar.setLoading('');
+      return from ? `Je ne trouve pas « ${from} ».` : "Je n'ai pas accès à votre position. Dites par exemple « itinéraire de la gare au musée ».";
+    }
+    try { b = typeof to === 'object' ? to : await geo.geocode(to, a); } catch { ar.setLoading(''); return `Je ne trouve pas « ${to} ».`; }
+    const crow = haversine(a, b);
+    const m = geo.MODES[mode] ? mode : crow < 3000 ? 'foot' : 'car';
+    let r;
+    try { r = await geo.route(a, b, m); } catch { ar.setLoading(''); return `Je n'ai pas trouvé d'itinéraire ${geo.MODES[m].label.toLowerCase()} entre ces deux lieux.`; }
+    if (!ar.isOpen()) return '';
+    const title = `${a.name} → ${b.name}`;
+    const panel = routeBody(a, b, r, true);
+    ar.setPanel(panel); // avant la carte : le cadrage du trajet tient compte du panneau
+    await ar.showRoute(r, a, b, title);
+    const cardBody = routeBody(a, b, r, false);
+    ui.card(`Itinéraire · ${title}`, cardBody, { icon: geo.MODES[m].icon, kind: 'text' });
+    const dist = geo.fmtDistance(r.distance);
+    const dur = geo.fmtDuration(r.duration);
+    if (hasAI()) {
+      routeInfo({ from: a.label || a.name, to: b.label || b.name, mode: geo.MODES[m].label.toLowerCase(), distance: dist, duration: dur })
+        .then((info) => {
+          const html = renderMarkdown(info.display || info.speech || '');
+          for (const box of [panel, cardBody]) { const n = box.querySelector('.route-info'); if (n) n.innerHTML = html; }
+        })
+        .catch(() => { for (const box of [panel, cardBody]) { const n = box.querySelector('.route-info'); if (n) n.textContent = ''; } });
+    }
+    return `${geo.MODES[m].label}, ${dist}, environ ${dur}. ${hasAI() ? 'Je vous affiche les étapes et les infos pratiques.' : 'Voici les étapes.'} Dites « survole le trajet » pour le parcourir en 3D.`;
+  },
+
   async ar_update(a) { return arControl(a); },
 
   async camera({ on = true, switch: sw, place }) {
@@ -745,7 +808,82 @@ function arControl(a = {}) {
   if ('spin' in a) ar.setAutoRotate(a.spin);
   if ('hands' in a) ar.setHands(a.hands);
   if (a.switchCamera) ar.switchCamera();
+  if (a.nextModel && !ar.nextModel()) return "Il n'y a pas d'autre modèle à montrer.";
+  if (a.fly && !ar.flyRoute()) return "Il n'y a pas d'itinéraire à survoler.";
   return '';
+}
+
+const hasAI = () => !!(settings.groqKey || settings.geminiKey || settings.claudeKey);
+
+// Ouvre la vue AR si besoin ; renvoie un message d'erreur, ou '' si tout va bien.
+async function ensureAR() {
+  if (ar.isOpen()) return '';
+  if (draw.isOpen()) draw.close();
+  if (camera.isOpen()) camera.closeCamera(); // la caméra passe dans la vue AR
+  try { await ar.open({ onMic: toggleListen }); return ''; } catch { return "Je n'arrive pas à charger le moteur 3D. Vérifiez votre connexion internet."; }
+}
+
+// Sans IA : un lieu connu → carte 3D, sinon recherche d'un vrai modèle.
+async function guessPlan(request) {
+  const g = await geo.geocode(request).catch(() => null);
+  if (g && /^(place|boundary|tourism|historic|leisure):/.test(g.kind)) return { kind: 'map', place: request };
+  return { kind: 'model', model_query: request, title: request };
+}
+
+async function arMap(place, { title = '', zoom = 0, speech = '' } = {}) {
+  ar.setPanel(null);
+  ar.setLoading(`Recherche de ${place}…`);
+  let g;
+  try { g = await geo.geocode(place); } catch { ar.setLoading(''); return `Je ne trouve pas « ${place} » sur la carte.`; }
+  await ar.showMap(g, { title: title || g.label || g.name, zoom: zoom || geo.zoomFor(g) });
+  return speech || `Voici ${g.name} en 3D. Pincez pour tourner, faites un poing pour vous déplacer, deux mains pour zoomer.`;
+}
+
+// Vrai modèle 3D : recherche Sketchfab, affichage du plus pertinent et choix parmi les suivants.
+async function arRealModel(query, title, speech) {
+  ar.setLoading(`Recherche d'un vrai modèle 3D : ${title}…`);
+  const phone = matchMedia('(pointer: coarse)').matches;
+  const models = await ar.searchModels(query, { phone }).catch(() => []);
+  if (!models.length || !ar.isOpen()) { ar.setLoading(''); return ''; }
+  await ar.showRealModel(models, 0, title);
+  const pick = el('div', { class: 'model-pick' });
+  const choose = (i) => { ar.showRealModel(models, i, title); pick.querySelectorAll('button').forEach((b, j) => b.setAttribute('aria-pressed', String(j === i))); };
+  models.slice(0, 9).forEach((m, i) => pick.append(el('button', { type: 'button', title: `${m.name} — ${m.author}`, 'aria-pressed': String(i === 0), onclick: () => choose(i) },
+    m.thumb ? el('img', { src: m.thumb, alt: m.name, loading: 'lazy' }) : m.name)));
+  ar.setPanel(el('div', {}, el('h3', {}, title), el('p', { class: 'route-places' }, 'Vrais modèles 3D de la communauté Sketchfab. Touchez-en un autre, ou dites « autre modèle ».'), pick));
+  return speech || `Voici un vrai modèle 3D : ${models[0].name}. Dites « autre modèle » pour en voir un autre.`;
+}
+
+function haversine(a, b) {
+  const R = 6371e3;
+  const r = (d) => (d * Math.PI) / 180;
+  const x = Math.sin(r(b.lat - a.lat) / 2) ** 2 + Math.cos(r(a.lat)) * Math.cos(r(b.lat)) * Math.sin(r(b.lon - a.lon) / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(x));
+}
+
+// Contenu d'un itinéraire (panneau AR ou carte de l'écran).
+function routeBody(a, b, r, inAR) {
+  const flag = { foot: 'w', car: 'd', bike: 'w' }[r.mode];
+  const apple = `https://maps.apple.com/?saddr=${a.lat},${a.lon}&daddr=${b.lat},${b.lon}&dirflg=${flag}`;
+  const google = `https://www.google.com/maps/dir/?api=1&origin=${a.lat},${a.lon}&destination=${b.lat},${b.lon}&travelmode=${{ foot: 'walking', car: 'driving', bike: 'bicycling' }[r.mode]}`;
+  return el('div', { class: 'route' },
+    inAR ? el('h3', {}, 'Itinéraire') : null,
+    el('p', { class: 'route-places' }, `De ${a.label || a.name} à ${b.label || b.name}`),
+    el('div', { class: 'route-modes' }, Object.entries(geo.MODES).map(([k, mm]) => el('button', {
+      type: 'button', 'aria-pressed': String(k === r.mode), onclick: () => handleRoute({ from: a, to: b, mode: k }),
+    }, `${mm.icon} ${mm.label}`))),
+    el('div', { class: 'route-sum' }, el('b', {}, geo.fmtDuration(r.duration)), el('span', {}, geo.fmtDistance(r.distance))),
+    el('div', { class: 'actions-row' },
+      inAR ? chip('▶️ Survoler en 3D', () => ar.flyRoute()) : chip('🥽 Voir en 3D', () => handleRoute({ from: a, to: b, mode: r.mode })),
+      chip('🍎 Plans', null, apple), chip('🗺️ Google Maps', null, google)),
+    el('ol', { class: 'route-steps' }, r.steps.slice(0, 40).map((st) => el('li', {}, st.text, st.distance > 0 ? el('small', {}, geo.fmtDistance(st.distance)) : null))),
+    el('div', { class: 'route-info md' }, hasAI() ? ui.loading() : null));
+}
+async function handleRoute(opts) {
+  setBusy(true);
+  const speech = await ACTIONS.route(opts).catch(() => "Je n'ai pas pu recalculer l'itinéraire.");
+  setBusy(false);
+  await say(speech);
 }
 
 // Mots utilisés pour désigner un élément → types de cartes correspondants.

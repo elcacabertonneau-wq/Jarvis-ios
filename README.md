@@ -42,20 +42,25 @@ Pour changer le contenu (« ajoute une colonne prix »), Jarvis passe par l'IA, 
 
 Pour une image : bouton 📎 dans la barre de saisie, **glisser-déposer** sur la fenêtre, ou **Ctrl+V**. Puis « analyse cette image », « fais des recherches à partir de cette image », « trouve des images similaires », « lis le texte de cette image ». Jarvis peut aussi analyser une photo déjà affichée.
 
-L'analyse d'image utilise une IA capable de voir : **Gemini** (clé gratuite) ou **Groq** (même clé gratuite, modèle d'images), ou Claude si sa clé est renseignée. L'image n'est envoyée qu'au moment d'une analyse.
+L'analyse d'image utilise une IA capable de voir : **Gemini** (clé gratuite) ou **Groq** (même clé gratuite, modèle d'images), ou Claude si sa clé est renseignée. Jarvis choisit automatiquement un modèle encore en service parmi ceux que votre clé propose (les fournisseurs en arrêtent régulièrement) et, en cas d'échec, affiche la raison (clé refusée, quota atteint…). L'image n'est envoyée qu'au moment d'une analyse.
 
 ### Réalité augmentée : hologrammes 3D contrôlés avec les doigts
 Jarvis projette des maquettes 3D, des plans et des images **par-dessus l'image de votre caméra**, et vous les manipulez **avec vos mains** devant la caméra (suivi des mains MediaPipe, directement dans le navigateur, rien n'est envoyé en ligne).
 
+Jarvis choisit tout seul la meilleure source 3D pour chaque demande :
+
 | Dites… | Effet |
 |---|---|
-| « Projette un moteur V8 en 3D », « montre-moi un château fort en hologramme », « hologramme d'un cœur humain » | Jarvis modélise le sujet en 3D (via l'IA) et le projette |
-| « Projette le plan d'un appartement T3 en 3D » | Plan de logement en 3D : pièces, surfaces, murs, mobilier |
+| « Montre-moi le plan de New York en 3D », « projette Tokyo », « carte de Rome » | **Vraie carte 3D** de la ville (OpenStreetMap) : immeubles en relief, rues, noms |
+| « Itinéraire de la tour Eiffel au Louvre à pied », « comment aller à la gare ? » | **Itinéraire complet** : durée, distance, étapes détaillées, infos pratiques de l'IA (transports en commun, prix, lieux à voir, conseils), tracé lumineux sur la carte 3D, **survol animé** du trajet, liens Plans / Google Maps |
+| « Projette une Ferrari F40 », « un cœur humain », « un T-rex », « une maquette de la tour Eiffel » | **Vrai modèle 3D** parmi des millions de modèles gratuits (Sketchfab) ; « autre modèle » pour en voir un autre |
+| « Projette une molécule de caféine », « le plan d'un appartement T3 » | Maquette construite par l'IA (formes, étiquettes, animations) |
 | Envoyez la photo d'un plan (📎), puis « projette ce plan en 3D » | L'IA lit le plan (pièces, cotes) et le reconstruit en maquette |
-| « Projette une chaise en 3D », « une lampe », « une plante en pot »… | Vrai modèle photoréaliste de la bibliothèque libre Poly Haven quand il existe |
-| « Projette cette image », « projette des photos de la tour Eiffel » | Image en panneau flottant, ou carrousel de photos en arc de cercle |
-| « Projette le système solaire / un atome / l'ADN / une molécule d'eau / un cube » | Maquettes intégrées, instantanées et sans IA |
+| « Projette des photos de la tour Eiffel », « projette cette image » | Images en panneau flottant ou en carrousel (seulement si vous demandez des photos) |
+| « Projette le système solaire / un atome / l'ADN » | Maquettes intégrées, instantanées et sans IA |
 | Envoyez un fichier **.glb** (📎 ou glisser-déposer) | Votre propre modèle 3D, avec ses animations |
+
+Les itinéraires fonctionnent à pied, à vélo et en voiture. « La gare », « une pharmacie », « l'hôpital » désignent le plus proche. Sans point de départ, Jarvis part de votre position.
 
 **Gestes** (main devant la caméra) :
 - 🤏 **pincer** (pouce + index) et glisser : faire tourner l'hologramme (il continue sur sa lancée quand on relâche) ;
@@ -64,7 +69,7 @@ Jarvis projette des maquettes 3D, des plans et des images **par-dessus l'image d
 
 Au toucher : un doigt pour tourner, deux doigts pour zoomer et déplacer ; à la souris : glisser, molette, clic droit pour déplacer, double-clic pour recentrer.
 
-À la voix, pendant la projection (instantané) : « plus grand », « plus petit », « vue de dessus / de face / de côté », « tourne-le vers la gauche », « fais-le tourner », « arrête de tourner », « mode hologramme » (effet holographique bleu), « couleurs réelles », « recentre », « change de caméra », « ferme la réalité augmentée ». Les fiches d'étude, images et créations ont aussi un bouton 🥽.
+À la voix, pendant la projection (instantané) : « plus grand », « plus petit », « vue de dessus / de face / de côté », « tourne-le vers la gauche », « fais-le tourner », « arrête de tourner », « mode hologramme » (effet holographique bleu, aussi sur les cartes), « couleurs réelles », « recentre », « autre modèle », « survole le trajet », « change de caméra », « ferme la réalité augmentée ». Sur une carte : un doigt fait glisser, deux doigts zooment et pivotent ; avec la main, pincer fait tourner et incliner, le poing déplace. Les fiches d'étude, images et créations ont aussi un bouton 🥽.
 
 Sur téléphone, la caméra arrière est utilisée par défaut (posez le téléphone ou tenez-le d'une main et manipulez de l'autre) ; sur ordinateur, la webcam. Sans caméra, l'hologramme s'affiche sur fond sombre. Le moteur 3D (Three.js) et le suivi des mains ne sont téléchargés qu'à la première ouverture.
 
@@ -200,6 +205,8 @@ web/
 ├── js/camera.js          Caméra, capture, images envoyées
 ├── js/ar.js              Réalité augmentée : hologrammes 3D, suivi des mains, gestes
 ├── js/draw.js            Dessin dans l'air avec l'index, export du croquis pour l'IA
+├── js/arlayers.js        Calques AR : carte 3D réelle (MapLibre) et vrais modèles (Sketchfab)
+├── js/geo.js             Recherche de lieux, itinéraires et consignes en français
 ├── js/hands.js           Suivi des mains (MediaPipe), partagé par l'AR et le dessin
 ├── js/facts.js           Mémoire personnelle (souvenirs sur l'utilisateur)
 ├── js/services.js        Images, Wikipédia, YouTube, radio, météo

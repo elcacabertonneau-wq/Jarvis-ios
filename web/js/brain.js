@@ -69,7 +69,8 @@ Actions disponibles (0, 1 ou plusieurs) :
 - {"type":"arrange","items":[{"target":"video","x":0,"y":0,"w":60,"h":100},{"target":"recap","x":60,"y":0,"w":40,"h":50}]} : placer et dimensionner LIBREMENT les fenêtres affichées (x, y, w, h en % de la zone d'affichage). Cibles : photo, images, video, recap/tableau, fiche, meteo, minuteur, texte, camera, carte mentale, page.
 - {"type":"style","target":"...","accent":"couleur ou #hex","background":"glass|solid|transparent|glow|light","size":"small|normal|large|huge","title":"nouveau titre"} : changer l'apparence d'une fenêtre
 - {"type":"theme","accent":"couleur ou #hex (default pour revenir au cyan)","background":"aurora|dark|minimal|vivid"} : changer les couleurs et l'ambiance de toute l'interface
-- {"type":"ar","topic":"ce qu'il faut modéliser en 3D","image":"last|screen","image_query":"…","plan_from_image":true} : RÉALITÉ AUGMENTÉE. Projette un hologramme 3D par-dessus la caméra, que l'utilisateur manipule avec ses doigts (pincer pour tourner, poing pour déplacer, deux mains pour zoomer). "topic" = objet, machine, molécule, bâtiment, monument, organe, plan de maison ou d'appartement, système… (Jarvis construit la maquette 3D). "image":"last" (image envoyée) ou "screen" (image affichée) projette cette image en panneau flottant ; ajoute "plan_from_image":true pour transformer un plan dessiné en maquette 3D. "image_query" projette des photos trouvées en carrousel. Utilise-le dès que l'utilisateur parle de 3D, d'hologramme, de réalité augmentée, d'AR ou de projeter quelque chose.
+- {"type":"ar","request":"la demande complète reformulée (ce qu'il faut montrer en 3D)","image":"last|screen","plan_from_image":true} : RÉALITÉ AUGMENTÉE, affichée par-dessus la caméra et manipulée avec les doigts. Jarvis choisit tout seul la meilleure source : vraie carte 3D d'une ville ou d'un lieu (immeubles en relief), vrai modèle 3D (objets, véhicules, animaux, monuments, œuvres, organes…), ou maquette construite (molécules, systèmes, plans de logement). Utilise-le dès que l'utilisateur parle de 3D, d'hologramme, de réalité augmentée, d'AR, de plan ou carte en 3D, ou de projeter quelque chose. "image" seulement pour projeter l'image envoyée ou affichée ("plan_from_image" pour transformer un plan dessiné en maquette).
+- {"type":"route","from":"lieu de départ (vide = position actuelle)","to":"destination","mode":"foot|car|bike"} : ITINÉRAIRE complet : distance, durée, étapes détaillées, conseils pratiques, et tracé sur une carte 3D en réalité augmentée. Utilise-le pour toute demande de trajet, d'itinéraire ou « comment aller à… ». Sans mode précisé : à pied si c'est proche en ville, sinon en voiture.
 - {"type":"ar_update","zoom":1.5,"turn":45,"view":"top|front|side|back","holo":true,"spin":true,"reset":true,"close":true} : modifier l'hologramme affiché (ne mets que les champs utiles)
 - {"type":"remember","fact":"phrase courte à la première personne, ex. « Je suis allergique aux noix »"} : retenir durablement une information sur l'utilisateur (prénom, allergies, goûts, ville, proches, dates importantes, objectifs…). Utilise-le quand il te demande de retenir quelque chose, ou quand il partage spontanément une information personnelle durable et utile ; confirme-le en quelques mots. Jamais pour des choses passagères ni pour des mots de passe ou codes secrets.
 - {"type":"forget","fact":"ce qu'il faut oublier"} : oublier un souvenir (ou "all" pour tout oublier)
@@ -470,6 +471,32 @@ export async function arSceneFor(topic, extra = '') {
     { role: 'user', content: `Maquette 3D de : ${topic}${extra ? `\nPrécisions : ${extra}` : ''}` },
   ];
   return parseJSON(await complete(messages, { json: true, maxTokens: 7000 }));
+}
+
+// Aiguillage d'une demande de réalité augmentée vers la meilleure source.
+export async function arPlan(request) {
+  const messages = [
+    { role: 'system', content: `Tu aiguilles des demandes de réalité augmentée vers la meilleure source 3D. Réponds uniquement en JSON :
+{"kind":"map|route|model|scene","title":"titre court en français","speech":"une phrase courte pour présenter","place":"…","zoom":16,"from":"…","to":"…","mode":"foot|car|bike","model_query":"…","topic":"…"}
+- "map" : une ville, un quartier, un pays, un site, un monument dans son environnement, « plan / carte de <lieu> », « montre-moi <ville> en 3D ». "place" = requête de recherche précise du point à centrer (ex. « plan de New York » → "Times Square, Manhattan, New York" ; « Paris en 3D » → "Tour Eiffel, Paris" ; un monument → son nom et sa ville). "zoom" : 16 pour un monument ou un quartier dense, 15 pour un centre-ville, 13 pour une ville entière, 6 pour un pays.
+- "route" : itinéraire, trajet, « comment aller de A à B ». "from" (vide = position actuelle), "to", "mode" (foot en ville sur moins de 3 km, sinon car ; bike si vélo).
+- "model" : un objet ou être réel et concret à voir comme un objet posé devant soi : véhicule, avion, fusée, animal, dinosaure, instrument, meuble, œuvre d'art, statue, organe du corps, personnage, bâtiment ou monument vu comme une maquette isolée (« une maquette de la tour Eiffel »), machine, arme historique, fossile… "model_query" = 2 à 4 mots-clés EN ANGLAIS pour la bibliothèque Sketchfab (ex. "human heart anatomy", "ferrari f40", "t-rex skeleton").
+- "scene" : ce qui se construit mieux en formes simples : molécule, atome, système solaire, schéma scientifique, plan d'appartement ou de maison inventé, graphique, figure géométrique. "topic" = le sujet précis en français.
+En cas de doute entre model et scene pour un objet concret, choisis model.` },
+    { role: 'user', content: request },
+  ];
+  return parseJSON(await complete(messages, { json: true, maxTokens: 800 }));
+}
+
+// Infos pratiques pour un itinéraire (en plus du calcul du trajet).
+export async function routeInfo({ from, to, mode, distance, duration }) {
+  const lang = settings.lang.startsWith('en') ? 'English' : 'français';
+  const messages = [
+    { role: 'system', content: `Tu es un guide de voyage pratique et précis. Réponds en ${lang}, uniquement en JSON : {"speech":"1 à 2 phrases à dire à voix haute","display":"Markdown"}. ${facts.forPrompt()}` },
+    { role: 'user', content: `Itinéraire ${mode} de « ${from} » à « ${to} » : ${distance}, environ ${duration}.
+Rédige "display" avec : "### En bref" (2 phrases), "### Autres façons d'y aller" (transports en commun avec lignes probables, taxi/VTC avec prix indicatif, vélo… avec durées estimées), "### Sur le chemin" (3 à 5 lieux ou points d'intérêt à voir), "### Conseils" (horaires, affluence, sécurité, accessibilité, météo selon la saison). Signale ce qui est une estimation. Pas de tableau Markdown.` },
+  ];
+  return parseReply(await complete(messages, { json: true, maxTokens: 2500 }));
 }
 
 // Transforme une image de plan (croquis, plan d'architecte, photo de plan) en maquette 3D.
