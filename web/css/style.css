@@ -327,6 +327,9 @@ body[data-state="wake"] .orb-label { color: var(--c-400); }
 .card-close, .card-expand { width: 32px; height: 32px; color: var(--text-3); flex: none; }
 .card-close svg, .card-expand svg { width: 16px; height: 16px; }
 
+/* ---------- Plein écran ---------- */
+body.is-fullscreen.cursor-hidden, body.is-fullscreen.cursor-hidden * { cursor: none !important; }
+
 /* ---------- Affichage en grand ---------- */
 .scrim {
   position: fixed; inset: 0; z-index: 18;

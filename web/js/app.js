@@ -311,6 +311,15 @@ const ACTIONS = {
 
   async clear() { ui.clearStage(); return ''; },
 
+  async fullscreen({ on = true }) {
+    if (!fsSupported()) return "Le plein écran n'est pas disponible sur cet appareil.";
+    if (on === isFullscreen()) return '';
+    const ok = await setFullscreen(on);
+    if (ok || !on) return '';
+    // Le navigateur n'autorise le plein écran qu'après un clic ou une touche.
+    return 'Appuyez sur la touche F ou sur le bouton plein écran : le navigateur exige un clic pour cela.';
+  },
+
   async table(a) {
     const data = tables.show(a, { expand: true });
     return data ? '' : "Je n'ai pas pu construire ce tableau.";
@@ -368,6 +377,41 @@ function showOnboarding() {
     } }, 'Activer')));
   const c = ui.card('Activer mon intelligence', body, { icon: '🧠', keep: true });
   c.id = 'onboard';
+}
+
+// ---------------- Plein écran ----------------
+const fsSupported = () => !!(document.fullscreenEnabled || document.webkitFullscreenEnabled);
+const isFullscreen = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
+async function setFullscreen(on) {
+  try {
+    if (on) await (document.documentElement.requestFullscreen?.({ navigationUI: 'hide' }) ?? document.documentElement.webkitRequestFullscreen?.());
+    else await (document.exitFullscreen?.() ?? document.webkitExitFullscreen?.());
+    return true;
+  } catch {
+    return false;
+  }
+}
+function toggleFullscreen() { setFullscreen(!isFullscreen()); }
+
+// En plein écran, le curseur disparaît après 3 s d'immobilité.
+let cursorTimer = null;
+function wakeCursor() {
+  document.body.classList.remove('cursor-hidden');
+  clearTimeout(cursorTimer);
+  if (isFullscreen()) cursorTimer = setTimeout(() => document.body.classList.add('cursor-hidden'), 3000);
+}
+function onFullscreenChange() {
+  const on = isFullscreen();
+  document.body.classList.toggle('is-fullscreen', on);
+  const b = $('btn-fullscreen');
+  b.setAttribute('aria-pressed', String(on));
+  b.title = on ? 'Quitter le plein écran (F ou Échap)' : 'Plein écran (F)';
+  b.innerHTML = on
+    ? '<svg viewBox="0 0 24 24"><path d="M8 4h2v6H4V8h4V4zm6 0h2v4h4v2h-6V4zM4 14h6v6H8v-4H4v-2zm10 0h6v2h-4v4h-2v-6z"/></svg>'
+    : '<svg viewBox="0 0 24 24"><path d="M4 4h6v2H6v4H4V4zm10 0h6v6h-2V6h-4V4zM4 14h2v4h4v2H4v-6zm14 0h2v6h-6v-2h4v-4z"/></svg>';
+  wakeCursor();
+  // La vue « en grand » se recale sur la nouvelle taille d'écran.
+  dispatchEvent(new Event('resize'));
 }
 
 // ---------------- Interface ----------------
@@ -434,11 +478,19 @@ function bindUI() {
   };
   $('btn-clear').onclick = () => ui.clearStage();
   $('btn-settings').onclick = openSettings;
+  if (fsSupported()) {
+    $('btn-fullscreen').hidden = false;
+    $('btn-fullscreen').onclick = toggleFullscreen;
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', onFullscreenChange);
+    document.addEventListener('pointermove', wakeCursor, { passive: true });
+  }
 
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && ui.collapseCard()) return; // réduit l'affichage en grand, même depuis la saisie
     if (e.target.matches('input, textarea, select') || e.repeat) return;
     if (e.code === 'Space') { e.preventDefault(); toggleListen(); }
+    if ((e.key === 'f' || e.key === 'F') && !e.ctrlKey && !e.metaKey && !e.altKey && fsSupported()) { e.preventDefault(); toggleFullscreen(); }
     if (e.key === 'Escape') voice.stopSpeaking();
   });
   document.addEventListener('pointerdown', firstGesture, { capture: true });

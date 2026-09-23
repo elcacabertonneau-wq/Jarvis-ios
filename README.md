@@ -32,6 +32,9 @@ Demandez un récap, un comparatif, un classement ou un planning (« fais-moi un 
 
 Pour changer le contenu (« ajoute une colonne prix »), Jarvis passe par l'IA, qui reçoit le tableau affiché. Toute carte (images, vidéo, fiche…) peut aussi s'afficher en grand avec le bouton ⤢ ou en disant « agrandis ».
 
+### Plein écran
+Bouton ⛶ en haut à droite, touche **F**, ou « mets en plein écran » / « quitte le plein écran ». La touche Échap en sort aussi. En plein écran, le curseur de la souris disparaît après 3 secondes d'immobilité. Le navigateur n'autorise le plein écran qu'après un clic ou une touche : si la commande vocale est refusée, Jarvis vous demande d'appuyer sur F. Non disponible sur iPhone (limite de Safari).
+
 ### Retour automatique à l'accueil
 Après 2 minutes sans activité, les recherches s'effacent en douceur et l'écran d'accueil revient. Les minuteurs en cours et les vidéos restent affichés. Le délai se règle dans **⚙️ Réglages → Écran** (1, 2 ou 5 minutes, ou jamais). « Reviens à l'accueil » le fait tout de suite.
 
