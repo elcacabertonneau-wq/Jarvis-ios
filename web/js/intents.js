@@ -383,7 +383,9 @@ export function matchGeoIntent(input) {
   m = raw.match(/^comment (?:aller|me rendre|je vais|on va|rejoindre|venir|y aller)\s+(?:à |a |au |aux |jusqu'?à |en |chez |vers )?(.+?)(?:\s+(?:depuis|en partant de|à partir de)\s+(.+))?$/i)
     || raw.match(/^(?:(?:donne|montre|calcule|trouve|fais|affiche|trace)(?:[- ]moi)?\s+)?(?:l'|l’|un |le )?(?:itin[ée]raire|trajet|chemin|route)\s+(?:pour (?:aller|me rendre)\s+)?(?:à |a |au |aux |vers |jusqu'?à |pour )(.+?)(?:\s+(?:depuis|en partant de|à partir de)\s+(.+))?$/i);
   if (m) return { route: { from: from(m[2]), to: tidy(m[1]), mode } };
-  m = raw.match(/^(?:(?:montre|affiche|projette|donne|ouvre|fais[- ]moi voir|je veux voir)(?:[- ]moi)?\s+)?(?:le |la |un |une )?(?:plan|carte|map|vue 3 ?d)(?: 3 ?d| en 3 ?d| en relief)?\s+(?:de |d'|d’|du |des )(.+)$/i);
+  m = raw.match(/^(?:(?:montre|affiche|projette|donne|ouvre|fais[- ]moi voir|je veux voir|je voudrais voir|fais|fait|cr[ée]e|g[ée]n[èe]re|construis|dessine|mod[ée]lise|visualise|pr[ée]pare|sors)(?:[- ]moi)?\s+)?(?:le |la |un |une |ton |ta )?(?:plan|carte|map|vue|maquette|mod[èe]le)(?: 3 ?d| en 3 ?d| en relief| a[ée]rienne)?\s+(?:de |d'|d’|du |des )(.+)$/i);
+  // « maquette de … » / « modèle de … » sans 3D : seulement pour une ville ou un lieu, décidé plus bas par l'aiguillage.
+  if (m && /^(?:.*\s)?(?:maquette|mod[èe]le)\b/i.test(raw.slice(0, raw.indexOf(m[1]))) && !/3 ?d|relief/i.test(input)) m = null;
   if (m && !/appartement|maison|logement|studio|bureau|pi[èe]ce|chambre|cuisine|\bt\d\b|f\d\b|villa|loft|salle|immeuble invent|jardin/i.test(m[1])) {
     return { map: tidy(m[1]) };
   }
