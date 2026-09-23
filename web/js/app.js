@@ -70,7 +70,13 @@ async function handle(raw, { spoken = false } = {}) {
       setBusy(false);
       await say(speech, t);
     } else if (mmCmd.fit) mindmap.fit();
-    else await say(mindmap.update(mmCmd), t);
+    else {
+      if (mmCmd.userImage) mmCmd.userImage.src = camera.getLastImage()?.dataUrl || camera.getLastImage()?.url || '';
+      if (mmCmd.images) setBusy(true);
+      const speech = await mindmap.update(mmCmd);
+      setBusy(false);
+      await say(speech, t);
+    }
     return;
   }
 
@@ -396,7 +402,11 @@ const ACTIONS = {
     }
   },
   async mindmap_update(a) {
-    return mindmap.update({ layout: a.layout, expandAll: a.expand_all, collapseAll: a.collapse_all, toggle: a.toggle, close: a.close, restore: a.restore, expand: a.expand });
+    return mindmap.update({
+      layout: a.layout, expandAll: a.expand_all, collapseAll: a.collapse_all, toggle: a.toggle, close: a.close, restore: a.restore, expand: a.expand,
+      images: a.images, links: a.links, removeImages: a.remove_images, removeLinks: a.remove_links,
+      customLink: a.link_url ? { target: a.target, url: a.link_url, label: a.link_label } : undefined,
+    });
   },
 
   // ---------- Mise en forme libre ----------

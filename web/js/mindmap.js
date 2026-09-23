@@ -1,6 +1,8 @@
 // Cartes mentales : arbre de notions dessiné en SVG, 3 dispositions (carte, arbre, organigramme),
 // branches colorées, zoom à la molette, déplacement à la souris, branches repliables d'un clic.
 import * as ui from './ui.js';
+import { searchImages, wikiLookup } from './services.js';
+import { settings } from './settings.js';
 
 const { el } = ui;
 const NS = 'http://www.w3.org/2000/svg';
@@ -20,6 +22,11 @@ let lastData = null;
 
 // ---------- Données ----------
 let uid = 0;
+const safeImage = (u) => (typeof u === 'string' && /^(https:\/\/|data:image\/)/i.test(u) ? u : '');
+const safeLink = (u) => (typeof u === 'string' && /^https?:\/\/[^\s]+$/i.test(u) ? u : '');
+const wikiURL = (label) => `https://${(settings.lang || 'fr').slice(0, 2)}.wikipedia.org/wiki/Special:Search?search=${encodeURIComponent(label)}`;
+// Taille des vignettes selon le niveau.
+const IMG = [{ w: 170, h: 104 }, { w: 132, h: 80 }, { w: 100, h: 62 }, { w: 90, h: 56 }];
 function normalizeNode(n, depth = 0, count = { v: 0 }) {
   if (count.v >= MAX_NODES) return null;
   count.v++;
@@ -30,6 +37,12 @@ function normalizeNode(n, depth = 0, count = { v: 0 }) {
     id: `n${++uid}`,
     label,
     note: String(n?.note || n?.detail || '').slice(0, 200),
+    image: safeImage(n?.image || n?.img),
+    imageFull: safeImage(n?.image || n?.img),
+    imageQuery: String(n?.image_query || n?.imageQuery || '').slice(0, 120),
+    link: safeLink(n?.link || n?.url),
+    linkLabel: String(n?.link_label || n?.linkLabel || '').slice(0, 60),
+    wiki: !!n?.wiki,
     collapsed: depth >= 3 && kids.length > 0, // les niveaux profonds démarrent repliés
     children: depth < 6 ? kids.map((k) => normalizeNode(k, depth + 1, count)).filter(Boolean) : [],
   };
@@ -65,7 +78,13 @@ function sizeNodes(node, depth = 0) {
   const font = `${depth <= 1 ? 600 : 500} ${fs}px Inter, system-ui, sans-serif`;
   const { lines, width } = wrap(node.label, font, depth === 0 ? 240 : 200);
   const lh = Math.round(fs * 1.3);
-  Object.assign(node, { depth, fs, font, lines, lh, w: Math.ceil(width) + (depth === 0 ? 40 : 28), h: lines.length * lh + (depth === 0 ? 28 : 18) });
+  const pad = depth === 0 ? 28 : 18;
+  const im = node.image ? IMG[Math.min(depth, 3)] : null;
+  Object.assign(node, {
+    depth, fs, font, lines, lh, im,
+    w: Math.max(Math.ceil(width) + (depth === 0 ? 40 : 28), im ? im.w + 16 : 0),
+    h: lines.length * lh + pad + (im ? im.h + 8 : 0),
+  });
   if (!node.collapsed) node.children.forEach((c) => sizeNodes(c, depth + 1));
 }
 
@@ -141,6 +160,7 @@ function draw() {
   else if (data.layout === 'tree') layoutHorizontal(root, visibleKids, 1);
   else layoutMindmap(root);
 
+  const defs = svgEl('defs');
   const links = svgEl('g', { class: 'mm-links' });
   const nodes = svgEl('g', { class: 'mm-nodes' });
   let minX = Infinity; let minY = Infinity; let maxX = -Infinity; let maxY = -Infinity;
@@ -167,10 +187,32 @@ function draw() {
       tabindex: hasKids ? '0' : null, role: hasKids ? 'button' : null,
       'aria-label': hasKids ? `${n.label} (${n.collapsed ? 'déplier' : 'replier'})` : null,
     },
-    svgEl('rect', { width: n.w, height: n.h, rx: n.depth === 0 ? n.h / 2 : 10, class: 'mm-box' }),
-    svgEl('text', { x: n.w / 2, y: (n.h - n.lines.length * n.lh) / 2 + n.lh * 0.78, 'text-anchor': 'middle', style: `font:${n.font}` },
+    svgEl('rect', { width: n.w, height: n.h, rx: n.depth === 0 ? (n.im ? 22 : n.h / 2) : 10, class: 'mm-box' }),
+    svgEl('text', { x: n.w / 2, y: (n.im ? n.im.h + 8 : 0) + (n.h - (n.im ? n.im.h + 8 : 0) - n.lines.length * n.lh) / 2 + n.lh * 0.78, 'text-anchor': 'middle', style: `font:${n.font}` },
       n.lines.map((l, i) => svgEl('tspan', { x: n.w / 2, dy: i ? n.lh : 0 }, document.createTextNode(l)))));
     if (n.note) g.append(svgEl('title', {}, document.createTextNode(n.note)));
+    if (n.im) {
+      // Vignette arrondie ; clic = image en grand.
+      const cid = `mmclip-${n.id}`;
+      defs.append(svgEl('clipPath', { id: cid }, svgEl('rect', { x: 8, y: 8, width: n.w - 16, height: n.im.h, rx: 8 })));
+      const img = svgEl('image', { href: n.image, x: 8, y: 8, width: n.w - 16, height: n.im.h, preserveAspectRatio: 'xMidYMid slice', 'clip-path': `url(#${cid})`, class: 'mm-img' });
+      img.addEventListener('error', () => { n.image = ''; n.im = null; draw(); }, { once: true });
+      img.addEventListener('click', (e) => { e.stopPropagation(); if (!current.dragged) ui.lightbox([{ full: n.imageFull || n.image, thumb: n.image, title: n.label }]); });
+      g.append(img);
+    }
+    if (n.link) {
+      // Pastille 🔗 dans le coin : ouvre la source dans un nouvel onglet.
+      const a = svgEl('g', { class: 'mm-linkbadge', transform: `translate(${n.w - 2},${2})`, role: 'link', tabindex: '0', 'aria-label': `Ouvrir le lien : ${n.linkLabel || n.link}` },
+        svgEl('circle', { r: 10, cx: 0, cy: 0 }),
+        svgEl('text', { x: 0, y: 4, 'text-anchor': 'middle' }, document.createTextNode('🔗')),
+        svgEl('title', {}, document.createTextNode(n.linkLabel ? `${n.linkLabel} — ${n.link}` : n.link)));
+      const open = (e) => { e.stopPropagation(); if (!current.dragged) window.open(n.link, '_blank', 'noopener'); };
+      a.addEventListener('click', open);
+      a.addEventListener('keydown', (e) => { if (e.key === 'Enter') open(e); });
+      g.append(a);
+    }
+    // Clic droit (ou Maj+clic) : menu pour ajouter une image ou un lien à cette idée.
+    g.addEventListener('contextmenu', (e) => { e.preventDefault(); openNodeMenu(n, e); });
     if (hasKids && n.collapsed) {
       const bx = data.layout === 'org' ? n.w / 2 : (n.x >= 0 ? n.w + 4 : -24);
       const by = data.layout === 'org' ? n.h + 4 : n.h / 2 - 10;
@@ -178,8 +220,9 @@ function draw() {
         svgEl('rect', { width: 20, height: 20, rx: 10 }),
         svgEl('text', { x: 10, y: 14, 'text-anchor': 'middle' }, document.createTextNode(`+${n.children.length}`))));
     }
+    if (!hasKids) g.addEventListener('click', (e) => { if (e.shiftKey) { e.stopPropagation(); openNodeMenu(n, e); } });
     if (hasKids) {
-      const toggle = (e) => { e.stopPropagation(); if (current.dragged) return; n.collapsed = !n.collapsed; draw(); };
+      const toggle = (e) => { e.stopPropagation(); if (current.dragged) return; if (e.shiftKey) { openNodeMenu(n, e); return; } n.collapsed = !n.collapsed; draw(); };
       g.addEventListener('click', toggle);
       g.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(e); } });
     }
@@ -187,7 +230,7 @@ function draw() {
     visibleKids(n).forEach((c) => walk(c, n));
   };
   walk(root, null);
-  svg.replaceChildren(svgEl('g', { class: 'mm-world' }, links, nodes));
+  svg.replaceChildren(defs, svgEl('g', { class: 'mm-world' }, links, nodes));
   current.bounds = { x: minX - 40, y: minY - 40, w: maxX - minX + 80, h: maxY - minY + 80 };
   if (!current.view || current.refit) { fit(); current.refit = false; } else applyView();
   current.seg.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.layout === data.layout)));
@@ -250,13 +293,107 @@ function bindView(svg) {
   new ResizeObserver(() => { if (current?.svg === svg) fit(); }).observe(svg);
 }
 
+// ---------- Images et liens ----------
+const allNodes = (root) => { const out = []; const go = (n) => { out.push(n); n.children.forEach(go); }; go(root); return out; };
+export function findNode(label) {
+  if (!current) return null;
+  const q = String(label || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/^(la |le |les |l')?(branche |idee |noeud |nœud )?/, '').trim();
+  if (!q) return null;
+  const norm = (t) => t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const nodes = allNodes(current.data.root);
+  return nodes.find((n) => norm(n.label) === q) || nodes.find((n) => norm(n.label).includes(q) || q.includes(norm(n.label)));
+}
+
+// Cherche une image pour chaque idée demandée (Wikimedia / Openverse), puis redessine.
+async function addImages(targets) {
+  const root = current.data.root;
+  let done = 0;
+  const lang = (settings.lang || 'fr').slice(0, 2);
+  // 1) image de l'article Wikipédia correspondant (très pertinente), 2) recherche d'images classique.
+  const fromWiki = async (q, l) => { const w = await wikiLookup(q, l).catch(() => null); return w?.image ? { thumb: w.image, full: w.image } : null; };
+  await Promise.all(targets.slice(0, 16).map(async (n) => {
+    const context = n === root ? n.label : `${n.label} ${root.label}`;
+    // Les deux recherches partent en même temps ; l'image Wikipédia est préférée si elle existe.
+    const wikiP = (async () => (n.imageQuery && await fromWiki(n.imageQuery, 'en'))
+      || await fromWiki(context, lang)
+      || (n !== root ? await fromWiki(n.label, lang) : null))();
+    const searchP = searchImages(n.imageQuery || context).then((x) => x[0] || null).catch(() => null)
+      .then((x) => x || (n !== root ? searchImages(n.label).then((y) => y[0] || null).catch(() => null) : null));
+    const quick = await Promise.race([wikiP.catch(() => null), new Promise((res) => setTimeout(() => res(null), 2500))]);
+    const hit = quick || await searchP;
+    // Si Wikipédia répond plus tard, son image (plus pertinente) remplace la première.
+    if (!quick) wikiP.then((w) => { if (w && current && n.image === hit?.thumb) { n.image = w.thumb; n.imageFull = w.full; draw(); } }).catch(() => {});
+    if (!hit || !current) return;
+    n.image = hit.thumb;
+    n.imageFull = hit.full || hit.thumb;
+    done++;
+    draw();
+  }));
+  return done;
+}
+function addLinks(targets) {
+  targets.forEach((n) => { if (!n.link) { n.link = wikiURL(n.label); n.linkLabel = 'Wikipédia'; } });
+  return targets.length;
+}
+
+// Complète automatiquement une carte fraîchement créée : images demandées par l'IA et liens « wiki ».
+async function autoEnrich() {
+  const nodes = allNodes(current.data.root);
+  nodes.filter((n) => n.wiki && !n.link).forEach((n) => { n.link = wikiURL(n.label); n.linkLabel = 'Wikipédia'; });
+  const wanted = nodes.filter((n) => n.imageQuery && !n.image);
+  if (nodes.some((n) => n.wiki)) draw();
+  if (wanted.length) await addImages(wanted);
+}
+
+// Petit menu (clic droit sur une idée).
+function openNodeMenu(n, e) {
+  closeNodeMenu();
+  const stage = current.svg.parentElement;
+  const r = stage.getBoundingClientRect();
+  const urlInput = el('input', { type: 'url', class: 'field', placeholder: 'https://…', value: n.link && !n.link.includes('wikipedia.org/wiki/Special:Search') ? n.link : '' });
+  const file = el('input', { type: 'file', accept: 'image/*', hidden: '' });
+  const act = (fn) => async () => { closeNodeMenu(); await fn(); draw(); };
+  const menu = el('div', { class: 'mm-menu', role: 'menu', style: `left:${Math.min(e.clientX - r.left, r.width - 250)}px;top:${Math.min(e.clientY - r.top, r.height - 260)}px` },
+    el('strong', {}, n.label),
+    el('button', { type: 'button', role: 'menuitem', onclick: act(() => addImages([n])) }, '🖼️ Image automatique'),
+    el('button', { type: 'button', role: 'menuitem', onclick: () => file.click() }, '📁 Image depuis mon ordinateur'),
+    el('button', { type: 'button', role: 'menuitem', onclick: act(() => { n.link = wikiURL(n.label); n.linkLabel = 'Wikipédia'; }) }, '🔗 Lien Wikipédia'),
+    el('div', { class: 'mm-menu-row' }, urlInput, el('button', { type: 'button', class: 'primary', onclick: act(() => { const u = safeLink(urlInput.value.trim()); if (u) { n.link = u; n.linkLabel = ''; } }) }, 'OK')),
+    n.image ? el('button', { type: 'button', role: 'menuitem', onclick: act(() => { n.image = ''; n.imageFull = ''; }) }, '✖ Retirer l’image') : null,
+    n.link ? el('button', { type: 'button', role: 'menuitem', onclick: act(() => { n.link = ''; }) }, '✖ Retirer le lien') : null,
+    file);
+  file.onchange = async () => {
+    const f = file.files?.[0];
+    if (!f) return;
+    const data = await new Promise((res) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.readAsDataURL(f); });
+    n.image = data; n.imageFull = data;
+    closeNodeMenu();
+    draw();
+  };
+  menu.addEventListener('pointerdown', (ev) => ev.stopPropagation());
+  stage.append(menu);
+  current.menu = menu;
+  setTimeout(() => addEventListener('pointerdown', closeNodeMenu, { once: true }), 0);
+}
+function closeNodeMenu() { current?.menu?.remove(); if (current) current.menu = null; }
+
 // ---------- API ----------
 export const hasMindmap = () => !!current?.card?.isConnected;
 export const canRestore = () => !hasMindmap() && !!lastData;
 
 export function show(raw, { expand = true, place = '' } = {}) {
   const data = raw.root?.id ? raw : normalize(raw);
-  if (hasMindmap()) ui.removeCard(current.card);
+  if (hasMindmap()) {
+    // Quand l'IA réécrit la carte, on garde les images et liens déjà posés sur les idées de même nom.
+    const old = new Map(allNodes(current.data.root).map((n) => [n.label.toLowerCase(), n]));
+    allNodes(data.root).forEach((n) => {
+      const o = old.get(n.label.toLowerCase());
+      if (!o) return;
+      if (!n.image && o.image) { n.image = o.image; n.imageFull = o.imageFull; }
+      if (!n.link && o.link) { n.link = o.link; n.linkLabel = o.linkLabel; }
+    });
+    ui.removeCard(current.card);
+  }
   const seg = el('div', { class: 'seg', role: 'group', 'aria-label': 'Disposition de la carte' },
     Object.entries(LAYOUTS).map(([k, label]) => el('button', { type: 'button', 'data-layout': k, 'aria-pressed': 'false', onclick: () => update({ layout: k }) }, label)));
   const svg = svgEl('svg', { class: 'mm-svg', role: 'img', 'aria-label': `Carte mentale : ${data.title}` });
@@ -271,11 +408,11 @@ export function show(raw, { expand = true, place = '' } = {}) {
   lastData = data;
   bindView(svg);
   if (expand) ui.expandCard(card);
-  requestAnimationFrame(() => draw());
+  requestAnimationFrame(() => { draw(); autoEnrich(); });
   return data;
 }
 
-export function update(u = {}) {
+export async function update(u = {}) {
   if (!hasMindmap()) {
     if (u.restore && lastData) { show(lastData); return 'Voici la dernière carte mentale.'; }
     return '';
@@ -293,17 +430,53 @@ export function update(u = {}) {
     if (!hit) return `Je ne trouve pas « ${u.toggle} » dans la carte.`;
     hit.collapsed = u.open === true ? false : u.open === false ? true : !hit.collapsed;
   }
+  // Images et liens : toute la carte, les branches principales, ou une idée précise.
+  const pick = (target) => {
+    if (!target || target === 'all') return allNodes(data.root).filter((n) => n.depth <= 2);
+    if (target === 'branches') return [data.root, ...data.root.children];
+    const n = findNode(target);
+    return n ? [n] : [];
+  };
+  let said = '';
+  if (u.images) {
+    const nodes = pick(u.images === true ? 'branches' : u.images);
+    if (!nodes.length) return `Je ne trouve pas « ${u.images} » dans la carte.`;
+    const n = await addImages(nodes);
+    said = n ? (nodes.length > 1 ? `J'ai ajouté ${n} images.` : 'Image ajoutée.') : "Je n'ai pas trouvé d'image adaptée.";
+  }
+  if (u.links) {
+    const nodes = pick(u.links === true ? 'all' : u.links);
+    if (!nodes.length) return `Je ne trouve pas « ${u.links} » dans la carte.`;
+    addLinks(nodes);
+    said = `${said} ${nodes.length > 1 ? 'Liens ajoutés.' : 'Lien ajouté.'}`.trim();
+  }
+  if (u.customLink) {
+    const n = findNode(u.customLink.target) || (u.customLink.target ? null : data.root);
+    const url = safeLink(u.customLink.url);
+    if (!n || !url) return "Je n'ai pas pu ajouter ce lien.";
+    n.link = url; n.linkLabel = u.customLink.label || '';
+    said = 'Lien ajouté.';
+  }
+  if (u.userImage) {
+    const n = findNode(u.userImage.target) || data.root;
+    if (!u.userImage.src) return "Envoyez-moi d'abord une image (bouton trombone, glisser-déposer ou Ctrl+V).";
+    n.image = u.userImage.src; n.imageFull = u.userImage.src;
+    said = 'Image placée.';
+  }
+  if (u.removeImages) allNodes(data.root).forEach((n) => { n.image = ''; n.imageFull = ''; n.imageQuery = ''; });
+  if (u.removeLinks) allNodes(data.root).forEach((n) => { n.link = ''; });
   draw();
+  if (u.images || u.userImage) current.refit = true;
   if (u.expand === true) ui.expandCard(current.card);
   if (u.expand === false) ui.collapseCard();
   requestAnimationFrame(() => fit());
-  return '';
+  return said;
 }
 
 // Version compacte pour l'IA (pour qu'elle puisse enrichir la carte affichée).
 export function describe() {
   if (!hasMindmap()) return '';
-  const strip = (n) => ({ label: n.label, ...(n.children.length ? { children: n.children.map(strip) } : {}) });
+  const strip = (n) => ({ label: n.label, ...(n.image ? { image: true } : {}), ...(n.link ? { link: n.link.slice(0, 80) } : {}), ...(n.children.length ? { children: n.children.map(strip) } : {}) });
   const json = JSON.stringify({ title: current.data.title, root: strip(current.data.root) });
   return json.length > 3500 ? `${json.slice(0, 3500)}…` : json;
 }
