@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "animate-ui": {
+      "source": "PrototyperAI/prototyper-ui",
+      "sourceType": "github",
+      "skillPath": "apps/docs/skill/animate-ui/SKILL.md",
+      "computedHash": "abc5e65c8cb9ae22cad8d45e6c81a3fb85d493411de9e15c6ab484d50948b0da"
+    }
+  }
+}
