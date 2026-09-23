@@ -330,6 +330,43 @@ body[data-state="wake"] .orb-label { color: var(--c-400); }
 /* ---------- Plein écran ---------- */
 body.is-fullscreen.cursor-hidden, body.is-fullscreen.cursor-hidden * { cursor: none !important; }
 
+/* ---------- Disposition libre (tableau de bord) ---------- */
+body.board-mode .layout { grid-template-columns: 220px minmax(0, 1fr); gap: var(--s5); max-width: none; }
+body.board-mode .orb { width: 170px; height: 170px; }
+body.board-mode .glow { inset: 36px; }
+body.board-mode .core { inset: 55px; }
+.stage.board {
+  display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: var(--s4);
+  overflow: hidden; padding: var(--s1);
+}
+.stage.board > * { max-width: none; margin: 0; }
+.stage.board > .card {
+  min-height: 0; min-width: 0; display: flex; flex-direction: column; overflow: hidden;
+  padding: var(--s4); transition: box-shadow var(--d-quick) var(--ease-smooth);
+}
+.stage.board > .card > :last-child { flex: 1; min-height: 0; overflow: auto; }
+.stage.board > .card .card-head { margin-bottom: var(--s3); }
+.stage.board .video-wrap { height: 100%; width: auto; max-width: 100%; aspect-ratio: 16 / 9; margin: 0 auto; }
+.stage.board .card[data-kind="video"] > :last-child { display: flex; flex-direction: column; overflow: hidden; }
+.stage.board .card[data-kind="video"] .video-wrap { flex: 1; min-height: 0; }
+.stage.board .card[data-kind="video"] .video-list,
+.stage.board .card[data-kind="video"] .sources { display: none; }
+.stage.board .card[data-kind="table"] .tbody { max-height: none; }
+.stage.board .gallery { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
+.stage.board .study-hero { flex-direction: column; }
+.stage.board .study-hero > img { width: 100%; max-width: 100%; max-height: 180px; }
+
+/* Une seule grande photo */
+.hero-fig { position: relative; margin: 0; height: 100%; min-height: 220px; border-radius: 12px; overflow: hidden; background: var(--g-800); box-shadow: var(--e3); }
+.hero-img { width: 100%; height: 100%; object-fit: cover; display: block; cursor: zoom-in; animation: fadeIn var(--d-slow) var(--ease-smooth-out); }
+.stage:not(.board) .hero-fig { height: auto; max-height: 520px; }
+.stage:not(.board) .hero-img { max-height: 520px; }
+.hero-fig figcaption {
+  position: absolute; left: 0; right: 0; bottom: 0; padding: var(--s6) var(--s3) var(--s2);
+  font-size: var(--fs-12); color: #fff; background: linear-gradient(transparent, hsla(222, 47%, 3%, .85));
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
 /* ---------- Affichage en grand ---------- */
 .scrim {
   position: fixed; inset: 0; z-index: 18;
@@ -711,6 +748,13 @@ dialog.closing::backdrop { animation: fadeOut var(--d-quick) var(--ease-smooth-o
   .lead { font-size: var(--fs-16); margin-bottom: var(--s5); }
   .suggest { grid-template-columns: 1fr; }
   .card { padding: var(--s4); }
+  /* Sur téléphone, les positions sont ignorées : les éléments s'empilent. */
+  .stage.board { display: flex; flex-direction: column; overflow-y: auto; }
+  .stage.board > .card { overflow: visible; }
+  .stage.board > .card > :last-child { overflow: visible; }
+  body.board-mode .layout { grid-template-columns: 1fr; }
+  body.board-mode .orb { width: 88px; height: 88px; }
+  body.board-mode .glow { inset: 18px; } body.board-mode .core { inset: 28px; }
   .card.expanded { left: var(--s2); right: var(--s2); padding: var(--s4); }
   .card.expanded .card-head h3 { font-size: var(--fs-18); }
   .seg button { padding: 6px var(--s2); letter-spacing: .08em; }

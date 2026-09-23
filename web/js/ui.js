@@ -56,13 +56,16 @@ const ICON_EXPAND = '<svg viewBox="0 0 24 24"><path d="M4 4h6v2H6v4H4V4zm10 0h6v
 const ICON_COLLAPSE = '<svg viewBox="0 0 24 24"><path d="M8 4h2v6H4V8h4V4zm6 0h2v4h4v2h-6V4zM4 14h6v6H8v-4H4v-2zm10 0h6v2h-4v4h-2v-6z"/></svg>';
 
 // Crée une carte sur l'écran. `actions` : éléments ajoutés dans l'en-tête ; `keep` : ne disparaît pas toute seule.
-export function card(title, body, { icon = '', actions = [], keep = false } = {}) {
+export function card(title, body, { icon = '', actions = [], keep = false, place = '', kind = '' } = {}) {
   const expandBtn = el('button', { class: 'icon-btn card-expand', title: 'Afficher en grand', 'aria-label': 'Afficher en grand', html: ICON_EXPAND });
   const closeBtn = el('button', { class: 'icon-btn card-close', title: 'Fermer', 'aria-label': 'Fermer', html: ICON_CLOSE });
   const c = el('article', { class: 'card' },
     el('div', { class: 'card-head' }, el('h3', {}, `${icon ? `${icon} ` : ''}${title || ''}`), ...actions, expandBtn, closeBtn),
     body);
   if (keep) c.dataset.keep = '1';
+  if (kind) c.dataset.kind = kind;
+  const pos = normalizePlace(place);
+  if (pos) c.dataset.place = pos;
   expandBtn.onclick = () => (expanded === c ? collapseCard() : expandCard(c));
   closeBtn.onclick = () => removeCard(c, true);
   $('stage-empty').hidden = true;
@@ -70,7 +73,90 @@ export function card(title, body, { icon = '', actions = [], keep = false } = {}
   const cards = stage().querySelectorAll('.card');
   for (let i = MAX_CARDS; i < cards.length; i++) removeCard(cards[i]);
   stage().scrollTop = 0;
+  layoutStage();
   return c;
+}
+
+// ---------- Disposition libre (tableau de bord) ----------
+// Positions : left, right, top, bottom, center et les 4 coins. Les cartes sont placées sur une grille
+// sans être déplacées dans le DOM (une vidéo en cours ne redémarre pas).
+export const PLACES = ['top-left', 'top', 'top-right', 'left', 'center', 'right', 'bottom-left', 'bottom', 'bottom-right'];
+const PLACE_ALIASES = {
+  gauche: 'left', droite: 'right', haut: 'top', bas: 'bottom', centre: 'center', milieu: 'center', middle: 'center',
+  'haut-gauche': 'top-left', 'haut-droite': 'top-right', 'bas-gauche': 'bottom-left', 'bas-droite': 'bottom-right',
+  'left-top': 'top-left', 'right-top': 'top-right', 'left-bottom': 'bottom-left', 'right-bottom': 'bottom-right', full: 'center',
+};
+export function normalizePlace(p) {
+  const k = String(p || '').toLowerCase().trim().replace(/[\s_]+/g, '-');
+  if (PLACES.includes(k)) return k;
+  return PLACE_ALIASES[k] || '';
+}
+const ROW_OF = (p) => (p.startsWith('top') ? 0 : p.startsWith('bottom') ? 2 : 1);
+const COL_OF = (p) => (p.endsWith('left') ? 0 : p.endsWith('right') ? 2 : 1);
+
+export function layoutStage() {
+  const st = stage();
+  const cards = [...st.querySelectorAll('.card:not(.leaving)')];
+  const placed = cards.filter((c) => c.dataset.place);
+  const active = placed.length > 0;
+  st.classList.toggle('board', active);
+  document.body.classList.toggle('board-mode', active);
+  cards.forEach((c) => { c.style.gridRow = ''; c.style.gridColumn = ''; });
+  if (!active) return;
+
+  // Les cartes sans position vont au centre (ou à la suite de la rangée du milieu).
+  const rows = [[], [], []];
+  cards.forEach((c) => {
+    const p = c.dataset.place || 'center';
+    rows[ROW_OF(p)].push({ c, col: COL_OF(p), order: cards.indexOf(c) });
+  });
+  const used = rows.map((r, i) => ({ r, i })).filter(({ r }) => r.length);
+  // Hauteurs : la rangée du milieu est plus haute ; 12 colonnes pour répartir 1 à 4 cartes par rangée.
+  st.style.gridTemplateRows = used.map(({ i }) => (i === 1 ? '1.35fr' : '1fr')).join(' ');
+  used.forEach(({ r }, rowIdx) => {
+    r.sort((a, b) => a.col - b.col || b.order - a.order);
+    const n = Math.min(r.length, 4);
+    const span = 12 / n;
+    r.forEach((item, k) => {
+      item.c.style.gridRow = String(rowIdx + 1);
+      item.c.style.gridColumn = k < 4 ? `${k * span + 1} / span ${span}` : '';
+    });
+  });
+}
+
+// Déplace la carte la plus récente d'un type donné (ou une carte précise).
+export function placeCard(target, place) {
+  const pos = normalizePlace(place);
+  const c = typeof target === 'string' ? findCardByKind(target) : target;
+  if (!c || !pos) return false;
+  // Si la place est déjà prise, les deux cartes échangent leurs positions.
+  const other = [...stage().querySelectorAll('.card:not(.leaving)')].find((x) => x !== c && x.dataset.place === pos);
+  if (other) { if (c.dataset.place) other.dataset.place = c.dataset.place; else delete other.dataset.place; }
+  c.dataset.place = pos;
+  // Les autres cartes sans position prennent le centre : on leur donne une vraie place libre.
+  layoutStage();
+  return true;
+}
+
+export function swapCards(kindA, kindB) {
+  const a = findCardByKind(kindA);
+  const b = findCardByKind(kindB);
+  if (!a || !b || a === b) return false;
+  const pa = a.dataset.place || 'center';
+  a.dataset.place = b.dataset.place || 'center';
+  b.dataset.place = pa;
+  layoutStage();
+  return true;
+}
+
+export function resetLayout() {
+  stage().querySelectorAll('.card').forEach((c) => { delete c.dataset.place; });
+  layoutStage();
+}
+
+export function findCardByKind(kind) {
+  const kinds = String(kind || '').split('|');
+  return [...stage().querySelectorAll('.card:not(.leaving)')].find((c) => kinds.includes(c.dataset.kind));
 }
 
 export function setCardTitle(c, text) { const h = c.querySelector('.card-head h3'); if (h) h.textContent = text; }
@@ -90,7 +176,7 @@ export function removeCard(c, animated = false) {
   if (!c?.isConnected) return;
   if (expanded === c) collapseCard();
   c.querySelectorAll('iframe').forEach((f) => unregisterVideo(f));
-  const done = () => { c.remove(); updateWelcome(); };
+  const done = () => { c.remove(); updateWelcome(); layoutStage(); };
   if (animated) animateOut(c, 'leaving', done);
   else done();
 }
@@ -149,14 +235,15 @@ export function collapseCard() {
 export const expandedCard = () => expanded;
 
 export function describeStage() {
-  const titles = [...stage().querySelectorAll('.card:not(.leaving) .card-head h3')].slice(0, 3).map((h) => h.textContent);
-  return titles.join(' ; ');
+  return [...stage().querySelectorAll('.card:not(.leaving)')].slice(0, 6)
+    .map((c) => `${c.querySelector('.card-head h3')?.textContent || ''}${c.dataset.kind ? ` [${c.dataset.kind}]` : ''}${c.dataset.place ? ` (position : ${c.dataset.place})` : ''}`)
+    .join(' ; ');
 }
 
 export const loading = () => el('div', { class: 'loading-line' });
 
-export function textCard(title, markdown, icon = '💬') {
-  return card(title || 'Jarvis', el('div', { class: 'md', html: renderMarkdown(markdown) }), { icon });
+export function textCard(title, markdown, icon = '💬', place = '') {
+  return card(title || 'Jarvis', el('div', { class: 'md', html: renderMarkdown(markdown) }), { icon, place, kind: 'text' });
 }
 
 export function errorCard(msg) {

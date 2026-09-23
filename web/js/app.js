@@ -90,7 +90,7 @@ async function handle(raw, { spoken = false } = {}) {
           reply.display = md.rest.replace(/^#+\s.*$/gm, '').trim().length > 60 ? md.rest : '';
         }
       }
-      if (reply.display) ui.textCard(reply.title || 'Jarvis', reply.display);
+      if (reply.display) ui.textCard(reply.title || 'Jarvis', reply.display, '💬', reply.place);
       const speech = await runActions(reply.actions, text);
       setBusy(false);
       await say(reply.speech || speech || (reply.display ? 'Voici.' : ''), t);
@@ -139,15 +139,24 @@ async function runActions(actions = [], originalText = '') {
 }
 
 const ACTIONS = {
-  async images({ query }) {
+  async images({ query, place, count }) {
+    const single = +count === 1;
     const body = el('div', {}, ui.loading());
-    ui.card(`Images · ${query}`, body, { icon: '🖼️' });
+    ui.card(`${single ? 'Photo' : 'Images'} · ${query}`, body, { icon: '🖼️', place, kind: single ? 'photo' : 'images' });
     const items = await svc.searchImages(query).catch(() => []);
     body.innerHTML = '';
     if (!items.length) {
       body.append(el('p', {}, 'Aucune image trouvée.'), el('div', { class: 'actions-row' },
         chip('✨ Générer une image', () => handle(`génère une image de ${query}`))));
       return `Je n'ai trouvé aucune image de ${query}. Je peux en générer une si vous voulez.`;
+    }
+    if (single) {
+      // Une seule photo, affichée en grand dans sa carte.
+      const it = items[0];
+      const img = el('img', { class: 'hero-img', src: it.full || it.thumb, alt: it.title || query, referrerpolicy: 'no-referrer', onclick: () => ui.lightbox(items, 0) });
+      img.onerror = () => { img.onerror = null; img.src = it.thumb; };
+      body.append(el('figure', { class: 'hero-fig' }, img, it.title ? el('figcaption', {}, it.title) : null));
+      return '';
     }
     body.append(ui.gallery(items, (i) => ui.lightbox(items, i)),
       el('div', { class: 'actions-row' },
@@ -157,7 +166,7 @@ const ACTIONS = {
     return `Voici des images de ${query}.`;
   },
 
-  async generate_image({ prompt }) {
+  async generate_image({ prompt, place }) {
     const url = svc.generateImageURL(prompt);
     const status = el('div', {}, ui.loading(), el('p', { class: 'sources' }, 'Création en cours… (10 à 30 secondes)'));
     const img = el('img', { class: 'gen-img', alt: prompt });
@@ -168,14 +177,14 @@ const ACTIONS = {
     img.onload = () => status.remove();
     img.onerror = () => { status.innerHTML = ''; status.append(el('p', {}, "Le générateur d'images gratuit est saturé, réessayez dans un instant.")); img.remove(); };
     img.src = url;
-    ui.card(`Création · ${prompt.slice(0, 60)}`, body, { icon: '✨' });
+    ui.card(`Création · ${prompt.slice(0, 60)}`, body, { icon: '✨', place, kind: 'photo' });
     return "C'est en cours de création.";
   },
 
-  async video({ query }) {
+  async video({ query, place }) {
     const body = el('div', {}, ui.loading());
     // Une vidéo en cours ne disparaît pas toute seule pendant 15 minutes.
-    const vc = ui.card(`Vidéo · ${query}`, body, { icon: '🎬', keep: true });
+    const vc = ui.card(`Vidéo · ${query}`, body, { icon: '🎬', keep: true, place, kind: 'video' });
     setTimeout(() => { delete vc.dataset.keep; }, 15 * 60 * 1000);
     let vids = [];
     try { vids = await svc.searchVideos(query); } catch { /* aucune source */ }
@@ -222,14 +231,14 @@ const ACTIONS = {
     return `Je n'ai pas trouvé ${q} directement, voici un lien.`;
   },
 
-  async study({ topic, quick }) {
+  async study({ topic, quick, place }) {
     const body = el('div', {}, ui.loading(), el('p', { class: 'sources' }, `Je consulte mes sources sur « ${topic} »…`));
-    const c = ui.card(`Étude · ${topic}`, body, { icon: '📚' });
+    const c = ui.card(`Étude · ${topic}`, body, { icon: '📚', place, kind: 'study' });
     const wiki = await svc.wikiLookup(topic).catch(() => null);
 
     if (quick && wiki?.summary) {
-      c.remove();
-      showWikiCard(wiki);
+      ui.removeCard(c);
+      showWikiCard(wiki, place);
       return wiki.summary.split(/(?<=[.!?])\s/).slice(0, 2).join(' ');
     }
 
@@ -253,7 +262,7 @@ const ACTIONS = {
     return notes?.speech || wiki?.summary.split(/(?<=[.!?])\s/).slice(0, 2).join(' ') || `Voici ma fiche sur ${topic}.`;
   },
 
-  async weather({ city }) {
+  async weather({ city, place }) {
     const w = await svc.getWeather(city);
     const [label, emoji] = svc.wmo(w.current.weather_code);
     const days = w.daily.time.map((d, i) => el('div', { class: 'day' },
@@ -263,17 +272,17 @@ const ACTIONS = {
     ui.card(`Météo · ${w.place}`, el('div', { class: 'weather' },
       el('div', { class: 'big' }, `${emoji} ${Math.round(w.current.temperature_2m)}°`),
       el('div', {}, el('div', {}, label), el('small', {}, `Ressenti ${Math.round(w.current.apparent_temperature)}° · Humidité ${w.current.relative_humidity_2m}% · Vent ${Math.round(w.current.wind_speed_10m)} km/h`)),
-      el('div', { class: 'days' }, days)), { icon: '🌍' });
+      el('div', { class: 'days' }, days)), { icon: '🌍', place, kind: 'weather' });
     return `À ${w.place.split(',')[0]}, ${label.toLowerCase()}, ${Math.round(w.current.temperature_2m)} degrés. Maximum ${Math.round(w.daily.temperature_2m_max[0])} aujourd'hui.`;
   },
 
-  async timer({ seconds, label }) {
+  async timer({ seconds, label, place }) {
     let left = Math.max(1, Math.round(+seconds || 60));
     const disp = el('div', { class: 'timer-display' });
     const fmt = (s) => [Math.floor(s / 3600), Math.floor(s / 60) % 60, s % 60].map((n) => String(n).padStart(2, '0')).join(':').replace(/^00:/, '');
     disp.textContent = fmt(left);
     const end = Date.now() + left * 1000;
-    const c = ui.card(`Minuteur · ${label || fmt(left)}`, disp, { icon: '⏱️', keep: true });
+    const c = ui.card(`Minuteur · ${label || fmt(left)}`, disp, { icon: '⏱️', keep: true, place, kind: 'timer' });
     const iv = setInterval(() => {
       if (!c.isConnected) return clearInterval(iv);
       left = Math.max(0, Math.round((end - Date.now()) / 1000));
@@ -321,7 +330,8 @@ const ACTIONS = {
   },
 
   async table(a) {
-    const data = tables.show(a, { expand: true });
+    // Un tableau placé à un endroit précis reste dans la disposition au lieu de s'ouvrir en grand.
+    const data = tables.show(a, { expand: !ui.normalizePlace(a.place), place: a.place });
     return data ? '' : "Je n'ai pas pu construire ce tableau.";
   },
 
@@ -338,7 +348,36 @@ const ACTIONS = {
       restore: a.restore,
     });
   },
+
+  async text({ title, content, place }) {
+    if (content) ui.textCard(title || 'Jarvis', content, '💬', place);
+    return '';
+  },
+
+  async move({ target, place }) {
+    return ui.placeCard(kindsFor(target), place) ? '' : `Je ne trouve pas d'élément « ${target} » à déplacer.`;
+  },
+
+  async swap({ a, b }) {
+    return ui.swapCards(kindsFor(a), kindsFor(b)) ? '' : 'Je ne trouve pas ces deux éléments.';
+  },
+
+  async layout_reset() { ui.resetLayout(); return ''; },
 };
+
+// Mots utilisés pour désigner un élément → types de cartes correspondants.
+function kindsFor(word = '') {
+  const w = String(word).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if (/photo|image|illustration|dessin|creation/.test(w)) return 'photo|images';
+  if (/images|galerie/.test(w)) return 'images|photo';
+  if (/video|clip|film|documentaire/.test(w)) return 'video';
+  if (/recap|tableau|resume|comparatif|synthese|table/.test(w)) return 'table|text';
+  if (/fiche|etude|cours|explication|article|wiki/.test(w)) return 'study|wiki|text';
+  if (/meteo|temps/.test(w)) return 'weather';
+  if (/minuteur|timer|chrono/.test(w)) return 'timer';
+  if (/texte|reponse|message|note/.test(w)) return 'text|study|wiki';
+  return w;
+}
 
 async function playRadio(q) {
   const stations = await svc.searchRadio(q).catch(() => []);
@@ -347,14 +386,14 @@ async function playRadio(q) {
   return `Je lance la radio ${s.name}.`;
 }
 
-function showWikiCard(w) {
+function showWikiCard(w, place = '') {
   ui.card(w.title, el('div', { class: 'study-hero' },
     w.image ? el('img', { src: w.image, alt: w.title, loading: 'lazy' }) : null,
     el('div', {}, el('p', {}, w.summary),
       el('div', { class: 'actions-row' },
         chip('📚 Fiche complète', () => handle(`étudie ${w.title}`)),
         chip('🖼️ Images', () => handle(`montre-moi des images de ${w.title}`)),
-        chip('↗️ Wikipédia', null, w.url)))), { icon: '🔎' });
+        chip('↗️ Wikipédia', null, w.url)))), { icon: '🔎', place, kind: 'wiki' });
 }
 
 // Carte d'accueil : obtenir une clé Groq gratuite (sans carte bancaire) en 1 minute.

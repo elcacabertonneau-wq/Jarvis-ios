@@ -176,7 +176,7 @@ function paint({ swap = true } = {}) {
 export function hasTable() { return !!current?.card?.isConnected; }
 export function canRestore() { return !hasTable() && !!lastData; }
 
-export function show(raw, { expand = true } = {}) {
+export function show(raw, { expand = true, place = '' } = {}) {
   const data = raw.columns && raw.hidden ? raw : normalize(raw);
   if (!data.rows.length) return null;
   if (hasTable()) ui.removeCard(current.card);
@@ -185,7 +185,7 @@ export function show(raw, { expand = true } = {}) {
   const sub = el('p', { class: 'tsub' });
   const body = el('div', { class: 'tbody' });
   const wrap = el('div', { class: 'tcontent' }, el('div', { class: 'tbar' }, sub, seg), body);
-  const card = ui.card(data.title, wrap, { icon: '📊' });
+  const card = ui.card(data.title, wrap, { icon: '📊', place, kind: 'table' });
   card.classList.add('table-card');
   current = { data, card, body, seg, sub };
   lastData = data;
