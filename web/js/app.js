@@ -1,9 +1,10 @@
 // Orchestrateur de Jarvis : relie la voix, l'IA, les commandes locales et l'affichage.
 import { settings, saveSettings, defaults } from './settings.js';
 import { Voice, chime } from './voice.js';
-import { think, see, canSee, studyNotes, mindmapFor, memory, activeProviderLabel } from './brain.js';
+import { think, see, canSee, studyNotes, mindmapFor, arSceneFor, arSceneFromImage, memory, activeProviderLabel } from './brain.js';
+import * as ar from './ar.js';
 import * as camera from './camera.js';
-import { matchIntent, matchTableIntent, matchMindmapIntent } from './intents.js';
+import { matchIntent, matchTableIntent, matchMindmapIntent, matchARIntent } from './intents.js';
 import * as mindmap from './mindmap.js';
 import * as tables from './tables.js';
 import { extractTable, renderMarkdown } from './markdown.js';
@@ -48,6 +49,7 @@ async function say(text, t = turn) {
   if (!text || t !== turn) return;
   ui.log('jarvis', text);
   ui.setLive(text, 'reply');
+  ar.caption(text);
   await voice.speak(text);
 }
 
@@ -80,6 +82,17 @@ async function handle(raw, { spoken = false } = {}) {
     return;
   }
 
+  // Réalité augmentée : hologrammes 3D manipulables avec les doigts.
+  const arCmd = matchARIntent(text, { open: ar.isOpen(), canRestore: ar.canRestore() });
+  if (arCmd) {
+    if (arCmd.topic || arCmd.image || arCmd.imageQuery) setBusy(true);
+    const speech = await ACTIONS.ar(arCmd).catch((e) => { console.warn(e); return "La réalité augmentée n'a pas pu démarrer."; });
+    setBusy(false);
+    await say(speech, t);
+    if (spoken && t === turn && voice.wakeEnabled) voice.followUp(6000);
+    return;
+  }
+
   // Disposition des tableaux et affichage en grand : instantané, sans IA.
   const tableCmd = matchTableIntent(text, { hasTable: tables.hasTable(), canRestore: tables.canRestore() });
   if (tableCmd) {
@@ -101,7 +114,7 @@ async function handle(raw, { spoken = false } = {}) {
       setBusy(false);
       await say(local.speech || speech, t);
     } else {
-      const reply = await think(text, { playing: player.nowPlaying(), screen: ui.describeStage(), table: tables.describe(), mindmap: mindmap.describe(), ...visionContext() });
+      const reply = await think(text, { playing: player.nowPlaying(), screen: ui.describeStage(), table: tables.describe(), mindmap: mindmap.describe(), ar: ar.describe(), ...visionContext() });
       if (t !== turn) return;
       // Un tableau Markdown dans la réponse devient un vrai tableau récapitulatif.
       if (reply.display && !reply.actions.some((a) => a?.type === 'table')) {
@@ -183,7 +196,8 @@ const ACTIONS = {
       el('div', { class: 'actions-row' },
         chip('✨ Générer une image', () => handle(`génère une image de ${query}`)),
         chip('🎬 Vidéo', () => handle(`lance une vidéo sur ${query}`)),
-        chip('📚 Étudier', () => handle(`étudie ${query}`))));
+        chip('📚 Étudier', () => handle(`étudie ${query}`)),
+        chip('🥽 Projeter en AR', () => ACTIONS.ar({ items, title: query }).then((sp) => say(sp)))));
     return `Voici des images de ${query}.`;
   },
 
@@ -194,6 +208,7 @@ const ACTIONS = {
     const body = el('div', {}, status, img,
       el('div', { class: 'actions-row' },
         chip('🔁 Autre version', () => ACTIONS.generate_image({ prompt })),
+        chip('🥽 Projeter en AR', () => ACTIONS.ar({ src: url, title: prompt }).then((sp) => say(sp))),
         chip('↗️ Ouvrir', null, url)));
     img.onload = () => status.remove();
     img.onerror = () => { status.innerHTML = ''; status.append(el('p', {}, "Le générateur d'images gratuit est saturé, réessayez dans un instant.")); img.remove(); };
@@ -278,6 +293,7 @@ const ACTIONS = {
       el('div', { class: 'actions-row' },
         chip('🖼️ Images', () => handle(`montre-moi des images de ${topic}`)),
         chip('🎬 Vidéo explicative', () => handle(`lance une vidéo sur ${topic}`)),
+        chip('🥽 Voir en 3D', () => handle(`projette ${topic} en 3D`)),
         ...(wiki?.related || []).slice(0, 2).map((r) => chip(`📚 ${r}`, () => handle(`étudie ${r}`)))),
       wiki ? el('p', { class: 'sources' }, 'Source : ', el('a', { href: wiki.url, target: '_blank', rel: 'noopener' }, `Wikipédia — ${wiki.title}`)) : null);
     return notes?.speech || wiki?.summary.split(/(?<=[.!?])\s/).slice(0, 2).join(' ') || `Voici ma fiche sur ${topic}.`;
@@ -460,6 +476,67 @@ const ACTIONS = {
     return ui.restoreKind(t.includes('cam') ? 'camera' : kindsFor(t)) ? '' : `Je ne trouve pas d'élément « ${target} » réduit.`;
   },
 
+  // ---------- Réalité augmentée ----------
+  // Accepte les commandes locales (topic, image, imageQuery, planFromImage, zoom…) et l'action de l'IA (même champs, en snake_case).
+  async ar(a = {}) {
+    const topic = a.topic || a.subject || '';
+    const image = a.image || '';
+    const imageQuery = a.imageQuery || a.image_query || '';
+    const planFromImage = a.planFromImage || a.plan_from_image;
+    const wantsContent = topic || image || imageQuery || a.src || a.items || a.parts || a.plan || a.restore || a.open;
+    if (!wantsContent) return arControl(a);
+    if (!ar.isOpen()) {
+      if (camera.isOpen()) camera.closeCamera(); // la caméra passe dans la vue AR
+      try { await ar.open({ onMic: toggleListen }); } catch { return "Je n'arrive pas à charger le moteur 3D. Vérifiez votre connexion internet."; }
+    }
+    if (a.open) return 'Réalité augmentée prête. Que voulez-vous projeter ?';
+    if (a.restore) return (await ar.restoreLast().catch(() => false)) ? '' : 'Réalité augmentée prête. Que voulez-vous projeter ?';
+    try {
+      if (a.parts || a.plan) return (await ar.showScene(a, a.title)) ? '' : "Je n'ai pas pu construire cette maquette.";
+      if (a.src) return (await ar.showImage(a.src, a.title || 'Image')) ? 'Image projetée.' : '';
+      if (a.items) return (await ar.showImages(a.items, a.title)) ? 'Images projetées. Pincez et glissez pour les faire défiler.' : "Ces images ne peuvent pas être projetées.";
+      if (image) {
+        const img = image === 'screen' ? await camera.imageFromScreen() : (camera.getLastImage() || await camera.imageFromScreen());
+        if (!img) { ar.setLoading(''); return "Envoyez-moi d'abord une image avec le trombone, un glisser-déposer ou Ctrl+V."; }
+        if (planFromImage) {
+          if (!canSee()) { ar.setLoading(''); showOnboarding(); return "Il me faut une IA capable de voir pour lire ce plan."; }
+          ar.setLoading('Lecture du plan et construction de la maquette…');
+          const scene = await arSceneFromImage(img, a.prompt || '');
+          return (await ar.showScene(scene, scene.title || 'Plan 3D')) ? (scene.speech || 'Voici votre plan en 3D.') : "Je n'ai pas réussi à reconstruire ce plan.";
+        }
+        return (await ar.showImage(img.dataUrl || img.url, img.label || 'Image')) ? 'Image projetée. Pincez pour la faire pivoter.' : '';
+      }
+      if (imageQuery) {
+        ar.setLoading(`Recherche d'images : ${imageQuery}…`);
+        const items = await svc.searchImages(imageQuery).catch(() => []);
+        const n = items.length ? await ar.showImages(items, imageQuery) : 0;
+        if (!n) ar.setLoading('');
+        return n ? `Voici ${imageQuery} en réalité augmentée. Pincez et glissez pour faire défiler.` : `Je n'ai pas trouvé d'images de ${imageQuery} à projeter.`;
+      }
+      const quick = ar.builtin(topic);
+      if (quick) { await ar.showScene(quick); return `Voici ${quick.speech || quick.title} en hologramme.`; }
+      if (!settings.groqKey && !settings.geminiKey && !settings.claudeKey) {
+        ar.setLoading('');
+        showOnboarding();
+        return "Pour modéliser n'importe quel sujet en 3D, activez d'abord mon intelligence. Sans elle, je sais projeter un atome, l'ADN, le système solaire, une molécule d'eau ou des formes simples.";
+      }
+      ar.setLoading(`Modélisation 3D : ${topic}…`);
+      const scene = await arSceneFor(topic, a.details || '');
+      if (!ar.isOpen()) return '';
+      if (scene.polyhaven) {
+        // Objet du quotidien : vrai modèle photoréaliste si la bibliothèque libre en a un.
+        const hit = await ar.findPolyHaven(scene.polyhaven).catch(() => null);
+        if (hit && await ar.showPolyHaven(hit).catch(() => false)) return scene.speech || `Voici ${topic} en réalité augmentée.`;
+      }
+      return (await ar.showScene(scene, scene.title || topic)) ? (scene.speech || `Voici ${topic} en hologramme.`) : `Je n'ai pas réussi à modéliser ${topic}.`;
+    } catch (e) {
+      console.warn(e);
+      ar.setLoading('');
+      return "Je n'ai pas pu afficher cet hologramme.";
+    }
+  },
+  async ar_update(a) { return arControl(a); },
+
   async camera({ on = true, switch: sw, place }) {
     if (sw) { await camera.switchCamera(); return ''; }
     if (!on) { camera.closeCamera(); return ''; }
@@ -517,6 +594,21 @@ const ACTIONS = {
     }
   },
 };
+
+// Réglages de l'hologramme affiché (commandes locales et action « ar_update » de l'IA).
+function arControl(a = {}) {
+  if (!ar.isOpen()) return a.close ? '' : "Aucun hologramme n'est affiché. Dites par exemple « projette un atome en 3D ».";
+  if (a.close) { ar.close(); return ''; }
+  if (a.reset) ar.reset();
+  if (a.zoom) ar.zoom(+a.zoom || 1);
+  if (a.turn) Array.isArray(a.turn) ? ar.turn(...a.turn) : ar.turn(+a.turn || 0, 0);
+  if (a.view) ar.view(a.view);
+  if ('holo' in a) ar.setHolo(a.holo);
+  if ('spin' in a) ar.setAutoRotate(a.spin);
+  if ('hands' in a) ar.setHands(a.hands);
+  if (a.switchCamera) ar.switchCamera();
+  return '';
+}
 
 // Mots utilisés pour désigner un élément → types de cartes correspondants.
 function kindsFor(word = '') {
@@ -643,6 +735,7 @@ function visionContext() {
 
 // ---------------- Images envoyées (bouton, glisser-déposer, coller) ----------------
 async function receiveImage(file) {
+  if (/\.(glb|gltf)$/i.test(file?.name || '')) { receiveModel(file); return; }
   if (!file?.type?.startsWith('image/')) return;
   firstGesture();
   try {
@@ -654,11 +747,26 @@ async function receiveImage(file) {
         chip('🔎 Analyser', () => handle('analyse cette image')),
         chip('📚 Rechercher des infos', () => handle('fais des recherches à partir de cette image')),
         chip('🖼️ Images similaires', () => handle('trouve des images similaires à cette image')),
-        chip('📝 Lire le texte', () => handle('lis le texte de cette image'))));
+        chip('📝 Lire le texte', () => handle('lis le texte de cette image')),
+        chip('🥽 Projeter en AR', () => handle('projette cette image')),
+        chip('🏗️ Plan → 3D', () => handle('projette ce plan en 3D'))));
     ui.card(`Image · ${file.name || 'collée'}`, body, { icon: '🖼️', kind: 'photo' });
     await say('Image reçue. Que voulez-vous savoir ?');
   } catch {
     ui.errorCard("Je n'arrive pas à lire cette image.");
+  }
+}
+
+// Modèle 3D envoyé (.glb) : projeté directement en réalité augmentée.
+async function receiveModel(file) {
+  firstGesture();
+  try {
+    if (!ar.isOpen()) { if (camera.isOpen()) camera.closeCamera(); await ar.open({ onMic: toggleListen }); }
+    if (!ar.isOpen()) throw new Error('AR fermée');
+    await ar.showModel(URL.createObjectURL(file), file.name.replace(/\.\w+$/, ''));
+    await say('Modèle 3D projeté. Pincez pour le faire tourner.');
+  } catch {
+    ui.errorCard("Je n'arrive pas à lire ce modèle 3D (format .glb conseillé : un .gltf avec des fichiers séparés ne peut pas être envoyé seul).");
   }
 }
 
@@ -716,7 +824,7 @@ function bindUI() {
   addEventListener('dragleave', (e) => { if (!e.relatedTarget) document.body.classList.remove('dropping'); });
   addEventListener('drop', (e) => {
     document.body.classList.remove('dropping');
-    const f = [...(e.dataTransfer?.files || [])].find((x) => x.type.startsWith('image/'));
+    const f = [...(e.dataTransfer?.files || [])].find((x) => x.type.startsWith('image/') || /\.(glb|gltf)$/i.test(x.name));
     if (f) { e.preventDefault(); receiveImage(f); }
   });
   addEventListener('paste', (e) => {

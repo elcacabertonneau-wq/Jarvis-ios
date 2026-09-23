@@ -44,6 +44,30 @@ Pour une image : bouton 📎 dans la barre de saisie, **glisser-déposer** sur l
 
 L'analyse d'image utilise une IA capable de voir : **Gemini** (clé gratuite) ou **Groq** (même clé gratuite, modèle d'images), ou Claude si sa clé est renseignée. L'image n'est envoyée qu'au moment d'une analyse.
 
+### Réalité augmentée : hologrammes 3D contrôlés avec les doigts
+Jarvis projette des maquettes 3D, des plans et des images **par-dessus l'image de votre caméra**, et vous les manipulez **avec vos mains** devant la caméra (suivi des mains MediaPipe, directement dans le navigateur, rien n'est envoyé en ligne).
+
+| Dites… | Effet |
+|---|---|
+| « Projette un moteur V8 en 3D », « montre-moi un château fort en hologramme », « hologramme d'un cœur humain » | Jarvis modélise le sujet en 3D (via l'IA) et le projette |
+| « Projette le plan d'un appartement T3 en 3D » | Plan de logement en 3D : pièces, surfaces, murs, mobilier |
+| Envoyez la photo d'un plan (📎), puis « projette ce plan en 3D » | L'IA lit le plan (pièces, cotes) et le reconstruit en maquette |
+| « Projette une chaise en 3D », « une lampe », « une plante en pot »… | Vrai modèle photoréaliste de la bibliothèque libre Poly Haven quand il existe |
+| « Projette cette image », « projette des photos de la tour Eiffel » | Image en panneau flottant, ou carrousel de photos en arc de cercle |
+| « Projette le système solaire / un atome / l'ADN / une molécule d'eau / un cube » | Maquettes intégrées, instantanées et sans IA |
+| Envoyez un fichier **.glb** (📎 ou glisser-déposer) | Votre propre modèle 3D, avec ses animations |
+
+**Gestes** (main devant la caméra) :
+- 🤏 **pincer** (pouce + index) et glisser : faire tourner l'hologramme (il continue sur sa lancée quand on relâche) ;
+- ✊ **poing fermé** : saisir et déplacer ; approcher la main de la caméra rapproche l'hologramme ;
+- 🤏🤏 **pincer avec les deux mains** : écarter pour agrandir, rapprocher pour réduire, tourner les mains pour faire pivoter.
+
+Au toucher : un doigt pour tourner, deux doigts pour zoomer et déplacer ; à la souris : glisser, molette, clic droit pour déplacer, double-clic pour recentrer.
+
+À la voix, pendant la projection (instantané) : « plus grand », « plus petit », « vue de dessus / de face / de côté », « tourne-le vers la gauche », « fais-le tourner », « arrête de tourner », « mode hologramme » (effet holographique bleu), « couleurs réelles », « recentre », « change de caméra », « ferme la réalité augmentée ». Les fiches d'étude, images et créations ont aussi un bouton 🥽.
+
+Sur téléphone, la caméra arrière est utilisée par défaut (posez le téléphone ou tenez-le d'une main et manipulez de l'autre) ; sur ordinateur, la webcam. Sans caméra, l'hologramme s'affiche sur fond sombre. Le moteur 3D (Three.js) et le suivi des mains ne sont téléchargés qu'à la première ouverture.
+
 ### Réduire les fenêtres
 Chaque carte a un bouton **—** qui la réduit dans une barre en bas (elle continue de fonctionner : vidéo, caméra, minuteur). Le lecteur de musique se réduit aussi en une pastille 🎵. Un clic sur une pastille la rouvre.
 
@@ -148,6 +172,7 @@ web/
 ├── js/mindmap.js         Cartes mentales : 3 dispositions, zoom, branches repliables
 ├── js/brain.js           IA (Groq / Gemini / Claude / Pollinations), vision, mémoire de conversation
 ├── js/camera.js          Caméra, capture, images envoyées
+├── js/ar.js              Réalité augmentée : hologrammes 3D, suivi des mains, gestes
 ├── js/services.js        Images, Wikipédia, YouTube, radio, météo
 ├── js/player.js          Lecteur radio et YouTube
 ├── js/ui.js              Cartes, disposition libre, affichage en grand, galerie, visionneuse
