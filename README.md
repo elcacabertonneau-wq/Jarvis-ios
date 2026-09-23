@@ -102,6 +102,21 @@ Jarvis retient ce que vous lui confiez et s'en sert ensuite dans toutes ses rép
 
 Jarvis retient aussi de lui-même une information personnelle durable que vous mentionnez (« je m'appelle Léa », « je suis végétarien »), et vous le dit. Les souvenirs restent **uniquement sur cet appareil** (**⚙️ Réglages → Mémoire → Ce que Jarvis sait de vous**) ; ne lui confiez pas de mots de passe.
 
+### Initiatives : Jarvis vous propose des actions
+Jarvis ne se contente plus de répondre : il propose la suite au bon moment. Répondez simplement « oui », « vas-y » ou « non merci », ou touchez les boutons.
+- **Prochaines étapes** : après chaque réponse, 1 à 3 boutons (après une fiche : carte mentale, quiz, voir en 3D ; après un itinéraire : survol, autre moyen de transport ; après une ville : vue satellite, comment y aller…). Ils ne sont jamais lus à voix haute.
+- **Questions de l'IA** : quand Jarvis termine par « Voulez-vous… ? », un simple « oui » lance la proposition.
+- **Au bon moment** :
+  - première ouverture de la matinée : météo de votre ville et proposition du point du jour ;
+  - anniversaire ou date retenus en mémoire (« souviens-toi que l'anniversaire d'Emma est le 12 mai ») : rappel la veille et le jour même, avec des idées de cadeaux ;
+  - pluie annoncée dans les prochaines heures ;
+  - minuteur terminé : proposition de le relancer ;
+  - image envoyée sans consigne : proposition de l'analyser ;
+  - dessin laissé en pause : proposition de le transformer en schéma ;
+  - tard le soir : musique douce.
+
+Jarvis ne propose qu'une chose à la fois, jamais pendant qu'il parle ou réfléchit, au plus une fois par minute à voix haute, et chaque rappel du jour une seule fois. **⚙️ Réglages → Initiatives** : à voix haute, discrètement (à l'écran seulement) ou jamais. Votre ville est déduite de votre mémoire (« retiens que j'habite à Lyon ») ou de la dernière météo demandée.
+
 ### Réduire les fenêtres
 Chaque carte a un bouton **—** qui la réduit dans une barre en bas (elle continue de fonctionner : vidéo, caméra, minuteur). Le lecteur de musique se réduit aussi en une pastille 🎵. Un clic sur une pastille la rouvre.
 
@@ -211,6 +226,7 @@ web/
 ├── js/arlayers.js        Calques AR : carte 3D réelle (MapLibre) et vrais modèles (Sketchfab)
 ├── js/geo.js             Recherche de lieux, itinéraires et consignes en français
 ├── js/hands.js           Suivi des mains (MediaPipe), partagé par l'AR et le dessin
+├── js/initiative.js      Initiatives : propositions au bon moment, prochaines étapes, réponses oui/non
 ├── js/facts.js           Mémoire personnelle (souvenirs sur l'utilisateur)
 ├── js/services.js        Images, Wikipédia, YouTube, radio, météo
 ├── js/player.js          Lecteur radio et YouTube

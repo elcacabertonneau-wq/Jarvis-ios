@@ -6,6 +6,7 @@ import * as geo from './geo.js';
 import * as ar from './ar.js';
 import * as draw from './draw.js';
 import * as facts from './facts.js';
+import * as initiative from './initiative.js';
 import * as camera from './camera.js';
 import { matchIntent, matchTableIntent, matchMindmapIntent, matchARIntent, matchMemoryIntent, matchDrawIntent, matchGeoIntent, styleFrom } from './intents.js';
 import * as mindmap from './mindmap.js';
@@ -66,6 +67,14 @@ async function handle(raw, { spoken = false } = {}) {
   ui.log('user', text);
   ui.setLive('');
   bumpActivity();
+  initiative.clearSuggestions();
+
+  // Réponse à une proposition de Jarvis (« oui », « non merci »).
+  const answered = initiative.answer(text);
+  if (answered) {
+    if (answered === 'no') await say('Très bien.', t);
+    return;
+  }
 
   // Cartes mentales : création (via l'IA dédiée) et affichage (instantané).
   const mmCmd = matchMindmapIntent(text, { hasMindmap: mindmap.hasMindmap(), canRestore: mindmap.canRestore() });
@@ -151,6 +160,7 @@ async function handle(raw, { spoken = false } = {}) {
     if (local) {
       const speech = await runActions(local.actions, text);
       setBusy(false);
+      initiative.suggest(nextSteps(local.actions));
       await say(local.speech || speech, t);
     } else {
       const reply = await think(text, { playing: player.nowPlaying(), screen: ui.describeStage(), table: tables.describe(), mindmap: mindmap.describe(), ar: ar.describe(), draw: draw.describe(), ...visionContext() });
@@ -166,7 +176,12 @@ async function handle(raw, { spoken = false } = {}) {
       if (reply.display) ui.textCard(reply.title || 'Jarvis', reply.display, '💬', reply.place);
       const speech = await runActions(reply.actions, text);
       setBusy(false);
-      await say(reply.speech || speech || (reply.display ? 'Voici.' : ''), t);
+      const steps = [...(reply.suggestions || []), ...nextSteps(reply.actions)];
+      initiative.suggest(steps);
+      // Si Jarvis termine par une question et propose une suite, « oui » la déclenche.
+      const finalSpeech = reply.speech || speech || (reply.display ? 'Voici.' : '');
+      if (/\?\s*$/.test(finalSpeech) && reply.suggestions?.[0]?.say) initiative.propose({ id: `ask:${Date.now()}`, text: finalSpeech, run: reply.suggestions[0].say, speak: false });
+      await say(finalSpeech, t);
     }
   } catch (e) {
     console.error(e);
@@ -340,6 +355,7 @@ const ACTIONS = {
 
   async weather({ city, place }) {
     const w = await svc.getWeather(city);
+    initiative.rememberCity(String(w.place || '').split(',')[0]);
     const [label, emoji] = svc.wmo(w.current.weather_code);
     const days = w.daily.time.map((d, i) => el('div', { class: 'day' },
       new Date(d).toLocaleDateString('fr-FR', { weekday: 'short' }),
@@ -368,6 +384,7 @@ const ACTIONS = {
         delete c.dataset.keep; // une fois terminé, il peut disparaître avec le reste
         chime(false); setTimeout(() => chime(false), 300); setTimeout(() => chime(false), 600);
         say(`Le minuteur ${label || ''} est terminé.`, turn);
+        initiative.onTimerEnd(seconds, label);
         if ('Notification' in window && Notification.permission === 'granted') new Notification('Jarvis', { body: 'Minuteur terminé' });
       }
     }, 500);
@@ -702,6 +719,10 @@ const ACTIONS = {
         })
         .catch(() => { for (const box of [panel, cardBody]) { const n = box.querySelector('.route-info'); if (n) n.textContent = ''; } });
     }
+    initiative.suggest([
+      { label: '▶️ Survoler le trajet', say: 'survole le trajet' },
+      ...Object.entries(geo.MODES).filter(([k]) => k !== m).map(([k, mm]) => ({ label: `${mm.icon} ${mm.label}`, say: `itinéraire de ${a.name} à ${b.name} ${{ foot: 'à pied', car: 'en voiture', bike: 'à vélo' }[k]}` })),
+    ]);
     return `${geo.MODES[m].label}, ${dist}, environ ${dur}. ${hasAI() ? 'Je vous affiche les étapes et les infos pratiques.' : 'Voici les étapes.'} Dites « survole le trajet » pour le parcourir en 3D.`;
   },
 
@@ -848,6 +869,11 @@ async function arMap(place, { title = '', zoom = 0, speech = '', style = '' } = 
   const hint = !wantsPhoto || got === 'photo' ? ''
     : settings.cesiumToken ? ' Votre jeton Cesium ion a été refusé : vérifiez-le dans les réglages, rubrique Cartes 3D.'
       : ' Pour la 3D photoréaliste façon Google Earth, ajoutez un jeton Cesium ion gratuit dans les réglages, rubrique Cartes 3D.';
+  initiative.suggest([
+    got === 'photo' ? { label: '🛰️ Vue satellite', say: 'vue satellite' } : { label: '🌍 Photoréaliste', say: 'passe en photoréaliste' },
+    { label: '🧭 Comment y aller ?', say: `comment aller à ${g.name}` },
+    { label: '📚 Découvrir', say: `étudie ${g.name}` },
+  ]);
   const what = got === 'photo' ? 'en 3D photoréaliste' : got === 'satellite' ? 'en vue satellite avec relief' : 'en 3D';
   return (speech && !hint ? speech : `Voici ${g.name} ${what}. Pincez pour tourner, faites un poing pour vous déplacer, deux mains pour zoomer.`) + hint;
 }
@@ -864,6 +890,7 @@ async function arRealModel(query, title, speech) {
   models.slice(0, 9).forEach((m, i) => pick.append(el('button', { type: 'button', title: `${m.name} — ${m.author}`, 'aria-pressed': String(i === 0), onclick: () => choose(i) },
     m.thumb ? el('img', { src: m.thumb, alt: m.name, loading: 'lazy' }) : m.name)));
   ar.setPanel(el('div', {}, el('h3', {}, title), el('p', { class: 'route-places' }, 'Vrais modèles 3D de la communauté Sketchfab. Touchez-en un autre, ou dites « autre modèle ».'), pick));
+  initiative.suggest([{ label: '🔄 Autre modèle', say: 'autre modèle' }, { label: '📚 En savoir plus', say: `étudie ${title}` }]);
   return speech || `Voici un vrai modèle 3D : ${models[0].name}. Dites « autre modèle » pour en voir un autre.`;
 }
 
@@ -897,6 +924,26 @@ async function handleRoute(opts) {
   const speech = await ACTIONS.route(opts).catch(() => "Je n'ai pas pu recalculer l'itinéraire.");
   setBusy(false);
   await say(speech);
+}
+
+// Prochaines étapes proposées après une action (boutons, jamais dites à voix haute).
+function nextSteps(actions = []) {
+  const out = [];
+  for (const a of actions) {
+    const q = a?.query || a?.topic || '';
+    switch (a?.type) {
+      case 'images': out.push({ label: '🎬 Vidéo', say: `lance une vidéo sur ${q}` }, { label: '📚 Étudier', say: `étudie ${q}` }, { label: '🥽 En 3D', say: `projette ${q} en 3D` }); break;
+      case 'video': out.push({ label: '📚 Fiche', say: `étudie ${q}` }, { label: '🧠 Carte mentale', say: `fais une carte mentale sur ${q}` }); break;
+      case 'study': out.push({ label: '🧠 Carte mentale', say: `fais une carte mentale sur ${q}` }, { label: '❓ Quiz', say: `fais-moi un quiz interactif sur ${q}` }, { label: '🥽 Voir en 3D', say: `projette ${q} en 3D` }); break;
+      case 'weather': out.push({ label: '👕 Que porter ?', say: `que dois-je porter aujourd'hui${a.city ? ` à ${a.city}` : ''} ?` }); break;
+      case 'mindmap': out.push({ label: '🖼️ Illustrer', say: 'ajoute des images à la carte mentale' }, { label: '🌳 En arbre', say: 'mets-la en arbre' }); break;
+      case 'table': out.push({ label: '🃏 En cartes', say: 'mets-le en cartes' }, { label: '📊 Infographie', say: 'fais une infographie à partir de ce tableau' }); break;
+      case 'music': out.push({ label: '⏭️ Suivant', say: 'suivant' }, { label: '🔉 Moins fort', say: 'baisse le son' }); break;
+      case 'generate_image': out.push({ label: '🔁 Autre version', say: `génère une image de ${a.prompt}` }, { label: '🥽 Projeter', say: 'projette cette image' }); break;
+      default: break;
+    }
+  }
+  return out;
 }
 
 // Mots utilisés pour désigner un élément → types de cartes correspondants.
@@ -1042,6 +1089,7 @@ async function receiveImage(file) {
         chip('🏗️ Plan → 3D', () => handle('projette ce plan en 3D'))));
     ui.card(`Image · ${file.name || 'collée'}`, body, { icon: '🖼️', kind: 'photo' });
     await say('Image reçue. Que voulez-vous savoir ?');
+    initiative.onImage();
   } catch {
     ui.errorCard("Je n'arrive pas à lire cette image.");
   }
@@ -1263,6 +1311,17 @@ function init() {
     }
   }, 1500);
   if (!settings.groqKey && !settings.geminiKey && !settings.claudeKey) showOnboarding();
+
+  // Initiatives : propositions au bon moment et suggestions de prochaines étapes.
+  initiative.init({
+    run: (cmd) => handle(cmd),
+    say: (text) => say(text),
+    isBusy: () => busy || voice.speaking || voice.capturing,
+    listen: () => { if (voice.wakeEnabled) voice.followUp(8000); },
+    lastActivity: () => lastActivity,
+  });
+  // Dessin laissé en pause quelques secondes : proposer de le transformer.
+  setInterval(() => { if (draw.isOpen() && Date.now() - draw.lastStrokeAt() > 6000) initiative.onDrawIdle(draw.strokeCount()); }, 2000);
 
   if ('serviceWorker' in navigator && location.protocol === 'https:') {
     navigator.serviceWorker.register('sw.js').catch(() => {});

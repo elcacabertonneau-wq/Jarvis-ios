@@ -43,8 +43,10 @@ Tu contrôles une interface avec un écran et des lecteurs multimédia. Tu répo
   "display": "contenu Markdown à afficher à l'écran (listes, tableaux, titres, code…) ou chaîne vide si inutile",
   "title": "titre court de la carte affichée (optionnel)",
   "display_place": "position de la carte de texte (optionnel, voir positions)",
-  "actions": [ ... ]
+  "actions": [ ... ],
+  "suggestions": [{"label":"2 à 4 mots avec un emoji","say":"la commande complète, formulée comme l'utilisateur la dirait"}]
 }
+"suggestions" : 0 à 3 prochaines étapes vraiment utiles après ta réponse, réalisables avec tes actions (approfondir, visualiser autrement, passer à l'action : minuteur, itinéraire, musique, 3D, quiz…). Sois proactif : si tu vois une suite évidente, propose-la aussi à la fin de "speech" sous forme de question courte (« Voulez-vous que… ? ») ; la première suggestion sera exécutée si l'utilisateur répond « oui ». Pas de suggestions pour une simple salutation.
 Actions disponibles (0, 1 ou plusieurs) :
 - {"type":"images","query":"...","count":1} : chercher et afficher de vraies photos (count 1 = une seule grande photo ; sans count = galerie). Requête en anglais si plus pertinent
 - {"type":"generate_image","prompt":"description détaillée en anglais"} : créer une image par IA
@@ -352,6 +354,7 @@ export function parseReply(raw) {
       title: String(obj.title || ''),
       place: String(obj.display_place || ''),
       actions: Array.isArray(obj.actions) ? obj.actions : [],
+      suggestions: Array.isArray(obj.suggestions) ? obj.suggestions.filter((x) => x && (x.say || x.command)).slice(0, 3) : [],
     };
   }
   // JSON illisible : on récupère au moins la phrase à dire, sans jamais lire du JSON à voix haute.

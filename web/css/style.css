@@ -1111,6 +1111,37 @@ body.ar-open .composer .attach, body.ar-open .composer .hint { display: none; }
 .mem-add { display: flex; gap: var(--s2); margin-top: var(--s4); }
 .mem-add .primary { flex: none; }
 
+/* ---------- Initiatives (propositions et prochaines étapes, au-dessus de la saisie) ---------- */
+.nudge {
+  position: fixed; z-index: 73; left: 50%; transform: translateX(-50%);
+  bottom: calc(96px + var(--safe-b)); width: min(640px, calc(100% - var(--s5)));
+  display: grid; gap: var(--s2); justify-items: center; pointer-events: none;
+  animation: rise var(--d-slow) var(--ease-smooth-out);
+}
+.nudge > * { pointer-events: auto; }
+.nudge-q {
+  display: flex; align-items: center; gap: var(--s3); width: 100%;
+  padding: var(--s2) var(--s2) var(--s2) var(--s4); border-radius: 999px;
+  background: hsla(218, 45%, 9%, .92); border: 1px solid hsla(var(--accent-h, 193), 100%, 70%, .45);
+  box-shadow: var(--e4), 0 0 24px hsla(var(--accent-h, 193), 100%, 58%, .2);
+}
+.nudge-q[hidden] { display: none; }
+.nudge-ico { flex: none; font-size: var(--fs-18); }
+.nudge-text { flex: 1; min-width: 0; font-size: var(--fs-14); color: var(--text); }
+.nudge-yes {
+  flex: none; padding: var(--s2) var(--s4); border-radius: 999px; border: 0; cursor: pointer;
+  font-weight: 600; font-size: var(--fs-14); color: var(--g-900); background: var(--c-400);
+  transition: var(--state-transition);
+}
+.nudge-no {
+  flex: none; width: 34px; height: 34px; border-radius: 50%; cursor: pointer; font-size: var(--fs-14);
+  color: var(--text-2); background: transparent; border: 1px solid var(--glass-edge);
+}
+.nudge-yes:active, .nudge-no:active, .nudge-chip:active { transform: scale(.96); }
+.nudge-chips { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--s2); }
+.nudge-chip { background: hsla(218, 45%, 9%, .88); box-shadow: var(--e2); }
+@media (max-width: 820px) { .nudge { bottom: calc(84px + var(--safe-b)); } .nudge-text { font-size: var(--fs-12); } }
+
 /* ---------- Accessibilité ---------- */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .001s !important; animation-iteration-count: 1 !important; animation-delay: 0s !important; transition-duration: .001s !important; }
