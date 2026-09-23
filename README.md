@@ -32,7 +32,7 @@ Jarvis est une application web installable (PWA). Elle fonctionne sur **iPhone, 
 
 ## Mise en ligne (5 minutes, gratuit)
 
-1. Fusionnez cette branche dans `main`.
+1. Fusionnez cette branche dans la branche par défaut du dépôt.
 2. Sur GitHub : **Settings → Pages → Build and deployment → Source : « GitHub Actions »**.
 3. Le workflow `Déployer Jarvis` publie l'app à l'adresse `https://<votre-pseudo>.github.io/<nom-du-repo>/`. Relancez-le depuis l'onglet **Actions** s'il a échoué avant l'étape 2.
 
