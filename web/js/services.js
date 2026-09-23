@@ -10,7 +10,13 @@ export async function fetchJSON(url, { timeout = 8000, ...opts } = {}) {
   const t = setTimeout(() => ctrl.abort(), timeout);
   try {
     const res = await fetch(url, { ...opts, signal: ctrl.signal });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) {
+      // Garde la raison donnée par le service (clé refusée, modèle arrêté, quota…) pour l'afficher.
+      const err = new Error(`HTTP ${res.status}`);
+      err.status = res.status;
+      try { const b = await res.json(); err.detail = String(b?.error?.message || b?.message || b?.error || '').slice(0, 200); } catch { /* corps illisible */ }
+      throw err;
+    }
     return await res.json();
   } finally {
     clearTimeout(t);

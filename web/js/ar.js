@@ -3,6 +3,7 @@
 // Three.js et le modèle de suivi des mains ne sont chargés qu'à la première ouverture.
 import * as ui from './ui.js';
 import { loadHands, BONES, detect } from './hands.js';
+import { createMap, createModel, searchModels } from './arlayers.js';
 
 const { el } = ui;
 const FIT = 1.8; // taille de l'hologramme (unités de la scène)
@@ -15,7 +16,7 @@ let S = null; // état de la vue AR ouverte
 let last = null; // dernier contenu affiché : { kind, data, title }
 
 export const isOpen = () => !!S;
-export const describe = () => (S ? `Hologramme en réalité augmentée affiché : ${S.title || 'vide'}` : '');
+export const describe = () => (S ? `Réalité augmentée ouverte : ${S.layer?.kind === 'map' ? 'carte 3D' : S.layer?.kind === 'model' ? 'modèle 3D' : 'hologramme'} « ${S.title || 'vide'} »` : '');
 export const canRestore = () => !!last;
 
 // ---------- Chargement paresseux ----------
@@ -59,7 +60,7 @@ export async function open({ onMic, onClose } = {}) {
       el('div', { class: 'ar-head' }, el('span', { class: 'ar-badge' }, 'AR'), title),
       hint,
       el('button', { type: 'button', class: 'ar-btn ar-close', title: 'Fermer (Échap)', 'aria-label': 'Fermer la réalité augmentée', onclick: () => close() }, '✕')),
-    loading, caption, tools);
+    loading, caption, tools, el('aside', { class: 'ar-panel', hidden: '' }));
   document.body.append(root);
   document.body.classList.add('ar-open');
 
@@ -101,6 +102,7 @@ export function close() {
   document.removeEventListener('keydown', st.onKey, true);
   removeEventListener('resize', st.onResize);
   st.stream?.getTracks().forEach((t) => t.stop());
+  st.layer?.destroy();
   if (st.content) disposeTree(st.content);
   st.pmrem?.dispose();
   st.env?.dispose();
@@ -135,8 +137,10 @@ export async function switchCamera() {
 // ---------- Scène 3D ----------
 function initScene() {
   const st = S;
-  const renderer = new T.WebGLRenderer({ canvas: st.canvas, antialias: true, alpha: true, preserveDrawingBuffer: false });
-  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+  // Téléphone : pas d'anticrénelage et résolution plafonnée (la caméra et le suivi des mains tournent en même temps).
+  const renderer = new T.WebGLRenderer({ canvas: st.canvas, antialias: !isPhone(), alpha: true, preserveDrawingBuffer: false, powerPreference: 'high-performance' });
+  st.dpr = Math.min(devicePixelRatio || 1, isPhone() ? 1.5 : 2);
+  renderer.setPixelRatio(st.dpr);
   renderer.setClearColor(0x000000, 0);
   renderer.outputColorSpace = T.SRGBColorSpace;
   renderer.toneMapping = T.ACESFilmicToneMapping;
@@ -169,7 +173,7 @@ function resize() {
   // Sur écran étroit (portrait), on recule pour que l'hologramme tienne en largeur.
   st.camera.position.z = CAM_Z * Math.max(1, 0.75 / Math.min(1, w / h));
   st.camera.updateProjectionMatrix();
-  const dpr = Math.min(devicePixelRatio || 1, 2);
+  const dpr = 1; // squelette des mains : la pleine résolution n'apporte rien et coûte cher
   st.overlay.width = Math.round(w * dpr);
   st.overlay.height = Math.round(h * dpr);
   st.overlay.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -187,6 +191,7 @@ function disposeTree(obj) {
 function setContent(obj, { title = '', tilt = [0.25, -0.5, 0], pedestal = true } = {}) {
   const st = S;
   if (!st?.holo) return;
+  clearLayer();
   if (st.content) { st.holo.remove(st.content); disposeTree(st.content); }
   st.holo.clear();
   st.anims = obj.userData.anims || [];
@@ -227,6 +232,93 @@ function makePedestal(y) {
   [ring, ring2, disc].forEach((m) => { m.rotation.x = -Math.PI / 2; g.add(m); });
   g.userData.spinner = ring2;
   return g;
+}
+
+// ---------- Calques : carte 3D réelle et vrais modèles ----------
+function clearLayer() {
+  const st = S;
+  if (!st?.layer) return;
+  st.layer.destroy();
+  st.layer = null;
+  st.root.classList.remove('has-layer');
+}
+
+// Vide l'hologramme Three.js et installe un calque (carte ou modèle) sous les gestes.
+function setLayer(layer, title) {
+  const st = S;
+  clearLayer();
+  if (st.content) { st.holo.remove(st.content); disposeTree(st.content); st.content = null; }
+  st.holo.clear();
+  st.anims = [];
+  st.renderer?.render(st.scene, st.camera);
+  st.layer = layer;
+  st.root.insertBefore(layer.el, st.canvas);
+  st.root.classList.add('has-layer');
+  st.title = title;
+  st.root.querySelector('.ar-title').textContent = title;
+  st.vel = { x: 0, y: 0 };
+}
+
+// Carte 3D d'un lieu ({lat, lon}) : immeubles en relief, rues, noms.
+export async function showMap(place, { title = place.name || 'Carte 3D', zoom = 16, pitch = 60, bearing = -20 } = {}) {
+  if (!S) return null;
+  setLoading(`Chargement de la carte 3D : ${title}…`);
+  const layer = await createMap({ center: place, zoom, pitch, bearing, holo: S.holoMode, phone: isPhone() });
+  if (!S) { layer.destroy(); return null; }
+  setLayer(layer, title);
+  layer.map.resize(); // la carte a été créée hors de la page : on lui donne sa vraie taille
+  S.autoRotate = true;
+  updateButtons();
+  try { await layer.ready; } finally { setLoading(''); }
+  last = { kind: 'map', data: { place, opts: { title, zoom, pitch, bearing } }, title };
+  return layer;
+}
+
+// Itinéraire sur carte 3D : tracé lumineux, départ et arrivée, survol animé.
+export async function showRoute(r, from, to, title = 'Itinéraire') {
+  const layer = await showMap(from, { title, zoom: 14 });
+  if (!layer) return null;
+  S.autoRotate = false;
+  updateButtons();
+  await layer.showRoute(r.geometry, from, to);
+  last = { kind: 'route', data: { r, from, to }, title };
+  return layer;
+}
+export function flyRoute() { if (S?.layer?.kind === 'map') { S.autoRotate = false; updateButtons(); S.layer.fly(); return true; } return false; }
+
+// Vrai modèle 3D (Sketchfab). `models` : résultats de recherche ; `index` : lequel afficher.
+export async function showRealModel(models, index = 0, title = '') {
+  if (!S || !models?.length) return false;
+  const m = models[index % models.length];
+  setLoading(`Chargement du modèle 3D : ${m.name}…`);
+  const layer = await createModel(m, {
+    onReady: () => { if (S?.layer === layer) setLoading(''); },
+    onError: () => { if (S?.layer === layer) { setLoading(''); caption('Ce modèle ne peut pas être affiché, dites « autre modèle ».'); } },
+  });
+  if (!S) { layer.destroy(); return false; }
+  setLayer(layer, title || m.name);
+  S.models = { list: models, index: index % models.length, title };
+  S.autoRotate = true;
+  updateButtons();
+  setTimeout(() => { if (S?.layer === layer) setLoading(''); }, 20000);
+  last = { kind: 'real', data: { models, index }, title: title || m.name };
+  return true;
+}
+export function nextModel() {
+  if (!S?.models) return false;
+  showRealModel(S.models.list, S.models.index + 1, S.models.title);
+  return true;
+}
+export { searchModels };
+
+// Panneau d'informations (itinéraire, crédits…) sur le côté de la vue.
+export function setPanel(node) {
+  if (!S) return;
+  const panel = S.root.querySelector('.ar-panel');
+  panel.replaceChildren(...(node ? [node] : []));
+  panel.hidden = !node;
+  S.root.classList.toggle('has-panel', !!node);
+  S.layer?.map?.resize();
 }
 
 // ---------- Construction de maquettes à partir d'un JSON de formes ----------
@@ -508,6 +600,9 @@ export async function restoreLast() {
   if (kind === 'model') return showModel(data.url, title, { urlMap: data.urlMap });
   if (kind === 'image') return showImage(data, title);
   if (kind === 'images') return !!(await showImages(data, title));
+  if (kind === 'map') return !!(await showMap(data.place, data.opts));
+  if (kind === 'route') return !!(await showRoute(data.r, data.from, data.to, title));
+  if (kind === 'real') return showRealModel(data.models, data.index, title);
   return false;
 }
 
@@ -534,7 +629,7 @@ function applyHolo(on) {
   });
 }
 
-export function setHolo(on) { if (!S) return; S.holoMode = !!on; applyHolo(S.holoMode); updateButtons(); }
+export function setHolo(on) { if (!S) return; S.holoMode = !!on; applyHolo(S.holoMode); S.layer?.setHolo(S.holoMode); updateButtons(); }
 export function setAutoRotate(on) { if (!S) return; S.autoRotate = !!on; S.vel = { x: 0, y: 0 }; updateButtons(); }
 export function setHands(on) {
   if (!S) return;
@@ -547,6 +642,7 @@ export function setHands(on) {
 
 export function reset() {
   const st = S;
+  if (st?.layer) { st.layer.reset(); st.vel = { x: 0, y: 0 }; return; }
   if (!st?.holo) return;
   st.holo.position.set(0, 0, 0);
   st.holo.scale.setScalar(1);
@@ -554,15 +650,20 @@ export function reset() {
   st.vel = { x: 0, y: 0 };
 }
 
-export function zoom(f) { if (S?.holo) S.holo.scale.setScalar(Math.min(6, Math.max(0.15, S.holo.scale.x * f))); }
+export function zoom(f) {
+  if (S?.layer) S.layer.zoom(f);
+  else if (S?.holo) S.holo.scale.setScalar(Math.min(6, Math.max(0.15, S.holo.scale.x * f)));
+}
 
 export function turn(yawDeg = 0, pitchDeg = 0) {
+  if (S?.layer) { S.layer.rotate(yawDeg * DEG, pitchDeg * DEG); return; }
   if (!S?.holo) return;
   S.holo.rotateOnWorldAxis(new T.Vector3(0, 1, 0), yawDeg * DEG);
   S.holo.rotateOnWorldAxis(new T.Vector3(1, 0, 0), pitchDeg * DEG);
 }
 
 export function view(name) {
+  if (S?.layer) { S.layer.view(name); S.autoRotate = false; updateButtons(); return; }
   if (!S?.holo) return;
   const v = { top: [Math.PI / 2, 0, 0], front: [0, 0, 0], side: [0, -Math.PI / 2, 0], back: [0, Math.PI, 0], below: [-Math.PI / 2, 0, 0] }[name];
   if (v) { S.holo.rotation.set(...v); S.vel = { x: 0, y: 0 }; S.autoRotate = false; updateButtons(); }
@@ -638,12 +739,13 @@ function bindPointer() {
     if (prev && cur.n === prev.n) {
       const dx = cur.x - prev.x;
       const dy = cur.y - prev.y;
-      if (cur.n === 1 && !p.shift) rotateBy(dx, dy);
+      const pan = st.layer?.kind === 'map' ? !p.shift : p.shift; // sur une carte, un doigt fait glisser la carte
+      if (cur.n === 1 && !pan) rotateBy(dx, dy);
       else if (cur.n === 1) moveBy(dx, dy);
       else {
         zoom(cur.d / Math.max(prev.d, 1));
         moveBy(dx, dy);
-        st.holo.rotateOnWorldAxis(new T.Vector3(0, 0, 1), -(cur.ang - prev.ang));
+        twist(-(cur.ang - prev.ang));
       }
     }
     prev = cur;
@@ -658,19 +760,32 @@ function bindPointer() {
 
 function interact() { if (S) { S.lastInteract = performance.now(); if (S.autoRotate) { S.autoRotate = false; updateButtons(); } } }
 
+function twist(a) {
+  if (S.layer) S.layer.twist(a);
+  else S.holo.rotateOnWorldAxis(new T.Vector3(0, 0, 1), a);
+}
+
+function spin(ay, ax) {
+  if (S.layer) S.layer.rotate(ay, ax);
+  else {
+    S.holo.rotateOnWorldAxis(new T.Vector3(0, 1, 0), ay);
+    S.holo.rotateOnWorldAxis(new T.Vector3(1, 0, 0), ax);
+  }
+}
+
 function rotateBy(dx, dy) {
   const st = S;
   const k = (Math.PI * 1.6) / Math.min(st.root.clientWidth, st.root.clientHeight);
   const ay = dx * k;
   const ax = dy * k;
-  st.holo.rotateOnWorldAxis(new T.Vector3(0, 1, 0), ay);
-  st.holo.rotateOnWorldAxis(new T.Vector3(1, 0, 0), ax);
+  spin(ay, ax);
   st.vel = { x: ax, y: ay };
 }
 
 // Déplacement en pixels → unités de la scène à la profondeur de l'hologramme.
 function moveBy(dx, dy) {
   const st = S;
+  if (st.layer) { st.layer.move(dx, dy); return; }
   const depth = st.camera.position.z - st.holo.position.z;
   const wpp = (2 * depth * Math.tan((st.camera.fov * DEG) / 2)) / st.root.clientHeight;
   st.holo.position.x += dx * wpp;
@@ -706,20 +821,17 @@ function drawHands(hands) {
     const active = h.pinch || h.fist;
     ctx.lineWidth = 2.5;
     ctx.strokeStyle = active ? 'rgba(255, 214, 120, .9)' : 'rgba(110, 225, 255, .75)';
-    ctx.shadowColor = active ? 'rgba(255, 200, 90, .9)' : 'rgba(80, 210, 255, .9)';
-    ctx.shadowBlur = 10;
     ctx.beginPath();
     for (const [a, b] of BONES) { ctx.moveTo(h.pts[a].x, h.pts[a].y); ctx.lineTo(h.pts[b].x, h.pts[b].y); }
     ctx.stroke();
     ctx.fillStyle = 'rgba(210, 248, 255, .95)';
-    for (const p of h.pts) { ctx.beginPath(); ctx.arc(p.x, p.y, 3, 0, Math.PI * 2); ctx.fill(); }
+    for (const i of [4, 8, 12, 16, 20]) { const p = h.pts[i]; ctx.fillRect(p.x - 2.5, p.y - 2.5, 5, 5); }
     ctx.beginPath();
     ctx.arc(h.pt.x, h.pt.y, active ? 16 : 11, 0, Math.PI * 2);
     ctx.lineWidth = 3;
     ctx.stroke();
     if (active) { ctx.globalAlpha = 0.25; ctx.fillStyle = ctx.strokeStyle; ctx.fill(); ctx.globalAlpha = 1; }
   }
-  ctx.shadowBlur = 0;
 }
 
 // Machine à gestes : 2 pincements = zoom/rotation/déplacement, poing = saisir et déplacer, 1 pincement = tourner.
@@ -747,7 +859,7 @@ function applyGestures(hands) {
       let da = ang - g.ang;
       if (da > Math.PI) da -= 2 * Math.PI;
       if (da < -Math.PI) da += 2 * Math.PI;
-      st.holo.rotateOnWorldAxis(new T.Vector3(0, 0, 1), -da);
+      twist(-da);
     }
     st.gesture = { mode, d, mid, ang };
     st.vel = { x: 0, y: 0 };
@@ -756,7 +868,8 @@ function applyGestures(hands) {
     if (g?.mode === 'grab' && g.key === fist.key) {
       moveBy(fist.pt.x - g.pt.x, fist.pt.y - g.pt.y);
       // Main plus grande à l'image = plus proche de la caméra : l'hologramme avance.
-      st.holo.position.z = Math.min(2.2, Math.max(-5, st.holo.position.z + ((fist.size - g.size) / g.size) * 3));
+      if (!st.layer) st.holo.position.z = Math.min(2.2, Math.max(-5, st.holo.position.z + ((fist.size - g.size) / g.size) * 3));
+      else if (Math.abs(fist.size - g.size) / g.size > 0.01) st.layer.zoom(fist.size / g.size);
     }
     st.gesture = { mode, key: fist.key, pt: fist.pt, size: fist.size };
     st.vel = { x: 0, y: 0 };
@@ -772,14 +885,24 @@ function applyGestures(hands) {
 function detectHands(now) {
   const st = S;
   if (!st.handsOn || !st.hands || !st.stream || st.video.readyState < 2) return;
-  if (st.video.currentTime === st.lastVideoTime) return;
-  st.lastVideoTime = st.video.currentTime;
   const found = detect(st.hands, st.video, now, { W: st.root.clientWidth, H: st.root.clientHeight, mirror: st.facing === 'user' });
   if (!found) return;
   const hands = found.map((h) => analyzeHand(h.pts, h.key));
   for (const [k, v] of Object.entries(st.handState)) if (now - v.seen > 400) delete st.handState[k];
   drawHands(hands);
   applyGestures(hands);
+}
+
+// Qualité adaptative : si l'image saccade (> 28 ms par image en moyenne), on baisse la résolution 3D.
+function adaptQuality(dt) {
+  const st = S;
+  st.qa ||= { sum: 0, n: 0 };
+  st.qa.sum += dt; st.qa.n++;
+  if (st.qa.n < 45) return;
+  const avg = st.qa.sum / st.qa.n;
+  st.qa = { sum: 0, n: 0 };
+  if (avg > 0.028 && st.dpr > 0.75) { st.dpr = Math.max(0.75, st.dpr - 0.25); st.renderer.setPixelRatio(st.dpr); resize(); }
+  else if (avg < 0.018 && st.dpr < Math.min(devicePixelRatio || 1, isPhone() ? 1.5 : 2)) { st.dpr = Math.min(st.dpr + 0.25, 2); st.renderer.setPixelRatio(st.dpr); resize(); }
 }
 
 // ---------- Boucle d'animation ----------
@@ -797,11 +920,15 @@ function loop(now) {
   const idle = !st.gesture && !st.pointers.size;
   if (idle && (Math.abs(st.vel.x) > 1e-4 || Math.abs(st.vel.y) > 1e-4)) {
     // Inertie : l'hologramme continue sur sa lancée puis ralentit.
-    st.holo.rotateOnWorldAxis(new T.Vector3(0, 1, 0), st.vel.y);
-    st.holo.rotateOnWorldAxis(new T.Vector3(1, 0, 0), st.vel.x);
+    spin(st.vel.y, st.vel.x);
     const f = Math.pow(0.9, dt * 60);
     st.vel.x *= f; st.vel.y *= f;
-  } else if (idle && st.autoRotate) st.holo.rotateOnWorldAxis(new T.Vector3(0, 1, 0), 0.35 * dt);
+  } else if (idle && st.autoRotate && !st.layer) st.holo.rotateOnWorldAxis(new T.Vector3(0, 1, 0), 0.35 * dt);
+  if (st.layer) {
+    st.layer.tick(dt, { autoRotate: idle && st.autoRotate });
+    return; // rien à dessiner côté Three.js
+  }
+  adaptQuality(dt);
   st.holo.children.forEach((c) => { if (c.userData.spinner) c.userData.spinner.rotation.z += dt * 0.8; });
   if (st.reveal < 1) {
     st.reveal = Math.min(1, (now - st.revealStart) / 900);

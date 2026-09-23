@@ -69,7 +69,8 @@ Actions disponibles (0, 1 ou plusieurs) :
 - {"type":"arrange","items":[{"target":"video","x":0,"y":0,"w":60,"h":100},{"target":"recap","x":60,"y":0,"w":40,"h":50}]} : placer et dimensionner LIBREMENT les fenêtres affichées (x, y, w, h en % de la zone d'affichage). Cibles : photo, images, video, recap/tableau, fiche, meteo, minuteur, texte, camera, carte mentale, page.
 - {"type":"style","target":"...","accent":"couleur ou #hex","background":"glass|solid|transparent|glow|light","size":"small|normal|large|huge","title":"nouveau titre"} : changer l'apparence d'une fenêtre
 - {"type":"theme","accent":"couleur ou #hex (default pour revenir au cyan)","background":"aurora|dark|minimal|vivid"} : changer les couleurs et l'ambiance de toute l'interface
-- {"type":"ar","topic":"ce qu'il faut modéliser en 3D","image":"last|screen","image_query":"…","plan_from_image":true} : RÉALITÉ AUGMENTÉE. Projette un hologramme 3D par-dessus la caméra, que l'utilisateur manipule avec ses doigts (pincer pour tourner, poing pour déplacer, deux mains pour zoomer). "topic" = objet, machine, molécule, bâtiment, monument, organe, plan de maison ou d'appartement, système… (Jarvis construit la maquette 3D). "image":"last" (image envoyée) ou "screen" (image affichée) projette cette image en panneau flottant ; ajoute "plan_from_image":true pour transformer un plan dessiné en maquette 3D. "image_query" projette des photos trouvées en carrousel. Utilise-le dès que l'utilisateur parle de 3D, d'hologramme, de réalité augmentée, d'AR ou de projeter quelque chose.
+- {"type":"ar","request":"la demande complète reformulée (ce qu'il faut montrer en 3D)","image":"last|screen","plan_from_image":true} : RÉALITÉ AUGMENTÉE, affichée par-dessus la caméra et manipulée avec les doigts. Jarvis choisit tout seul la meilleure source : vraie carte 3D d'une ville ou d'un lieu (immeubles en relief), vrai modèle 3D (objets, véhicules, animaux, monuments, œuvres, organes…), ou maquette construite (molécules, systèmes, plans de logement). Utilise-le dès que l'utilisateur parle de 3D, d'hologramme, de réalité augmentée, d'AR, de plan ou carte en 3D, ou de projeter quelque chose. "image" seulement pour projeter l'image envoyée ou affichée ("plan_from_image" pour transformer un plan dessiné en maquette).
+- {"type":"route","from":"lieu de départ (vide = position actuelle)","to":"destination","mode":"foot|car|bike"} : ITINÉRAIRE complet : distance, durée, étapes détaillées, conseils pratiques, et tracé sur une carte 3D en réalité augmentée. Utilise-le pour toute demande de trajet, d'itinéraire ou « comment aller à… ». Sans mode précisé : à pied si c'est proche en ville, sinon en voiture.
 - {"type":"ar_update","zoom":1.5,"turn":45,"view":"top|front|side|back","holo":true,"spin":true,"reset":true,"close":true} : modifier l'hologramme affiché (ne mets que les champs utiles)
 - {"type":"remember","fact":"phrase courte à la première personne, ex. « Je suis allergique aux noix »"} : retenir durablement une information sur l'utilisateur (prénom, allergies, goûts, ville, proches, dates importantes, objectifs…). Utilise-le quand il te demande de retenir quelque chose, ou quand il partage spontanément une information personnelle durable et utile ; confirme-le en quelques mots. Jamais pour des choses passagères ni pour des mots de passe ou codes secrets.
 - {"type":"forget","fact":"ce qu'il faut oublier"} : oublier un souvenir (ou "all" pour tout oublier)
@@ -124,18 +125,72 @@ async function gemini(messages, { json = true, maxTokens = 3000 } = {}) {
     role: m.role === 'assistant' ? 'model' : 'user',
     parts: [{ text: m.content }],
   }));
-  const model = settings.geminiModel || 'gemini-2.5-flash';
-  const data = await fetchJSON(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${settings.geminiKey}`, {
-    method: 'POST',
-    timeout: 40000,
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      systemInstruction: system ? { parts: [{ text: system }] } : undefined,
-      contents,
-      generationConfig: { temperature: 0.6, maxOutputTokens: maxTokens, ...(json ? { responseMimeType: 'application/json' } : {}) },
-    }),
-  });
-  return data.candidates?.[0]?.content?.parts?.map((p) => p.text).join('') || '';
+  return geminiCall(contents, system, { json, maxTokens, temperature: 0.6 });
+}
+
+// ---------- Modèles disponibles (les fournisseurs arrêtent régulièrement des modèles) ----------
+// Modèles d'images arrêtés chez Groq : ignorés même s'ils sont encore enregistrés dans les réglages.
+const DEAD_MODELS = /llama-4-(scout|maverick)|llama-3\.2-\d+b-vision|llava|gemini-(1\.|2\.0)/i;
+const listCache = new Map();
+function cachedList(key, fn) {
+  if (!listCache.has(key)) listCache.set(key, fn().catch(() => { listCache.delete(key); return []; }));
+  return listCache.get(key);
+}
+const groqModelIds = () => cachedList(`groq:${settings.groqKey}`, async () => {
+  const d = await fetchJSON('https://api.groq.com/openai/v1/models', { timeout: 8000, headers: { Authorization: `Bearer ${settings.groqKey}` } });
+  return (d.data || []).filter((m) => m.active !== false).map((m) => m.id);
+});
+async function groqVisionModels() {
+  const ids = await groqModelIds();
+  // Modèles probablement capables de voir, d'après leur nom (le catalogue ne l'indique pas).
+  const guess = ids.filter((id) => /qwen|vl\b|-vl-|vision|gemma|kimi|pixtral|llama-4/i.test(id) && !/guard|whisper|orpheus|tts|coder|safeguard/i.test(id))
+    .sort((x, y) => y.localeCompare(x, 'en', { numeric: true }));
+  return [...new Set([settings.groqVisionModel, 'qwen/qwen3.8-27b', ...guess])]
+    .filter((m) => m && !DEAD_MODELS.test(m) && (!ids.length || ids.includes(m)));
+}
+const geminiModelIds = () => cachedList(`gemini:${settings.geminiKey}`, async () => {
+  const d = await fetchJSON(`https://generativelanguage.googleapis.com/v1beta/models?pageSize=200&key=${settings.geminiKey}`, { timeout: 8000 });
+  return (d.models || [])
+    .filter((m) => (m.supportedGenerationMethods || []).includes('generateContent'))
+    .map((m) => String(m.name).replace(/^models\//, ''))
+    .filter((id) => /^gemini-\d+(\.\d+)?-(flash|pro)/.test(id) && !/image|tts|audio|live|embedding|exp|preview-\d{2}-\d{2}|thinking/.test(id));
+});
+async function geminiModels() {
+  const ids = await geminiModelIds();
+  const ver = (id) => parseFloat(id.match(/gemini-(\d+(?:\.\d+)?)/)?.[1] || 0);
+  // Les « flash » d'abord (rapides, quota gratuit), du plus récent au plus ancien.
+  const ranked = ids.slice().sort((x, y) => (/flash/.test(y) - /flash/.test(x)) || (/lite/.test(x) - /lite/.test(y)) || ver(y) - ver(x));
+  return [...new Set([settings.geminiModel, ...ranked, 'gemini-2.5-flash'])]
+    .filter((m) => m && !DEAD_MODELS.test(m) && (!ids.length || ids.includes(m))).slice(0, 4);
+}
+// Erreur qui justifie d'essayer le modèle suivant (modèle arrêté, surchargé ou sans réponse).
+const tryNext = (e) => !e.status || [400, 404, 408, 429, 500, 502, 503, 504].includes(e.status);
+
+async function geminiCall(contents, system, { json = true, maxTokens = 3000, temperature = 0.6 } = {}) {
+  let err = new Error('Aucun modèle Gemini disponible');
+  for (const model of await geminiModels()) {
+    try {
+      const data = await fetchJSON(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${settings.geminiKey}`, {
+        method: 'POST',
+        timeout: 45000,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          systemInstruction: system ? { parts: [{ text: system }] } : undefined,
+          contents,
+          // Marge large : les modèles récents « réfléchissent » avant de répondre et consomment ce budget.
+          generationConfig: { temperature, maxOutputTokens: Math.max(8192, maxTokens), ...(json ? { responseMimeType: 'application/json' } : {}) },
+        }),
+      });
+      const text = data.candidates?.[0]?.content?.parts?.filter((x) => !x.thought).map((x) => x.text).join('') || '';
+      if (text.trim()) return text;
+      err = new Error(`Réponse vide (${data.candidates?.[0]?.finishReason || 'inconnue'})`);
+    } catch (e) {
+      err = e;
+      console.warn(`[Jarvis] Gemini ${model} :`, e.message, e.detail || '');
+      if (!tryNext(e)) break;
+    }
+  }
+  throw err;
 }
 
 async function pollinations(messages, { json = true } = {}) {
@@ -258,24 +313,29 @@ const dataParts = (dataUrl) => {
 };
 
 async function groqVision(messages, image) {
-  const models = [...new Set([settings.groqVisionModel, 'meta-llama/llama-4-scout-17b-16e-instruct', 'meta-llama/llama-4-maverick-17b-128e-instruct'].filter(Boolean))];
   const last = messages[messages.length - 1];
   const withImage = [...messages.slice(0, -1), { role: 'user', content: [
     { type: 'text', text: last.content },
     { type: 'image_url', image_url: { url: image.dataUrl || image.url } },
   ] }];
-  let err;
-  for (const model of models) {
+  let err = new Error('Aucun modèle Groq capable de voir');
+  for (const model of await groqVisionModels()) {
     for (const json of [true, false]) {
       try {
         const data = await fetchJSON('https://api.groq.com/openai/v1/chat/completions', {
           method: 'POST',
           timeout: 45000,
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${settings.groqKey}` },
-          body: JSON.stringify({ model, messages: withImage, temperature: 0.4, max_tokens: 3000, ...(json ? { response_format: { type: 'json_object' } } : {}) }),
+          body: JSON.stringify({ model, messages: withImage, temperature: 0.4, max_tokens: 4000, ...(json ? { response_format: { type: 'json_object' } } : {}) }),
         });
-        return data.choices[0].message.content;
-      } catch (e) { err = e; if (!/HTTP (400|404)/.test(e.message)) throw e; }
+        const text = data.choices?.[0]?.message?.content || '';
+        if (text.trim()) return text.replace(/<think>[\s\S]*?<\/think>/g, '');
+      } catch (e) {
+        err = e;
+        console.warn(`[Jarvis] vision Groq ${model} :`, e.message, e.detail || '');
+        if (!tryNext(e)) throw e;
+        if (e.status !== 400) break; // 400 : peut-être le mode JSON, on réessaie sans ; sinon modèle suivant
+      }
     }
   }
   throw err;
@@ -290,18 +350,7 @@ async function geminiVision(messages, image) {
     role: m.role === 'assistant' ? 'model' : 'user',
     parts: i === turns.length - 1 ? [{ inline_data: { mime_type: p.mime, data: p.b64 } }, { text: m.content }] : [{ text: m.content }],
   }));
-  const model = settings.geminiModel || 'gemini-2.5-flash';
-  const data = await fetchJSON(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${settings.geminiKey}`, {
-    method: 'POST',
-    timeout: 45000,
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      systemInstruction: system ? { parts: [{ text: system }] } : undefined,
-      contents,
-      generationConfig: { temperature: 0.4, maxOutputTokens: 3000, responseMimeType: 'application/json' },
-    }),
-  });
-  return data.candidates?.[0]?.content?.parts?.map((x) => x.text).join('') || '';
+  return geminiCall(contents, system, { json: true, maxTokens: 8192, temperature: 0.4 });
 }
 
 async function claudeVision(messages, image) {
@@ -352,24 +401,37 @@ export async function see(userText, image, ctx = {}) {
     ...memory.history,
     { role: 'user', content: userText },
   ];
-  let lastErr = new Error('Aucune IA capable de voir n’est configurée.');
+  const failures = [];
   for (const name of order) {
     const p = VISION[name];
     if (!p.ok(image)) continue;
     try {
       const raw = await p.fn(messages, image);
-      if (!raw?.trim()) continue;
+      if (!raw?.trim()) { failures.push(`${VISION_LABEL[name]} : réponse vide`); continue; }
       const reply = parseReply(raw);
       reply.actions = reply.actions.filter((a) => a?.type !== 'look');
       memory.push('user', `[image : ${source}] ${userText}`);
       memory.push('assistant', JSON.stringify({ speech: reply.speech, actions: reply.actions.map((a) => (a?.type === 'table' ? { type: 'table', title: a.title } : a)) }));
       return reply;
     } catch (e) {
-      lastErr = e;
-      console.warn(`[Jarvis] vision ${name} a échoué :`, e.message);
+      failures.push(`${VISION_LABEL[name]} : ${explainError(e)}`);
+      console.warn(`[Jarvis] vision ${name} a échoué :`, e.message, e.detail || '');
     }
   }
-  throw lastErr;
+  throw new Error(failures.length ? failures.join(' · ') : 'aucune IA capable de voir n’est configurée (clé Groq ou Gemini gratuite)');
+}
+
+const VISION_LABEL = { gemini: 'Gemini', groq: 'Groq', claude: 'Claude' };
+// Raison lisible d'un échec d'appel à une IA.
+export function explainError(e) {
+  const st = e?.status;
+  if (st === 401 || st === 403) return 'clé refusée (vérifiez-la dans les réglages)';
+  if (st === 429) return 'quota gratuit atteint, réessayez dans une minute';
+  if (st === 413) return 'image trop lourde';
+  if (st === 400 || st === 404) return `modèle indisponible${e.detail ? ` (${e.detail.slice(0, 90)})` : ''}`;
+  if (st >= 500) return 'service momentanément surchargé';
+  if (e?.name === 'AbortError') return 'délai dépassé';
+  return e?.message || 'erreur inconnue';
 }
 
 // Génère une carte mentale structurée sur un sujet.
@@ -409,6 +471,32 @@ export async function arSceneFor(topic, extra = '') {
     { role: 'user', content: `Maquette 3D de : ${topic}${extra ? `\nPrécisions : ${extra}` : ''}` },
   ];
   return parseJSON(await complete(messages, { json: true, maxTokens: 7000 }));
+}
+
+// Aiguillage d'une demande de réalité augmentée vers la meilleure source.
+export async function arPlan(request) {
+  const messages = [
+    { role: 'system', content: `Tu aiguilles des demandes de réalité augmentée vers la meilleure source 3D. Réponds uniquement en JSON :
+{"kind":"map|route|model|scene","title":"titre court en français","speech":"une phrase courte pour présenter","place":"…","zoom":16,"from":"…","to":"…","mode":"foot|car|bike","model_query":"…","topic":"…"}
+- "map" : une ville, un quartier, un pays, un site, un monument dans son environnement, « plan / carte de <lieu> », « montre-moi <ville> en 3D ». "place" = requête de recherche précise du point à centrer (ex. « plan de New York » → "Times Square, Manhattan, New York" ; « Paris en 3D » → "Tour Eiffel, Paris" ; un monument → son nom et sa ville). "zoom" : 16 pour un monument ou un quartier dense, 15 pour un centre-ville, 13 pour une ville entière, 6 pour un pays.
+- "route" : itinéraire, trajet, « comment aller de A à B ». "from" (vide = position actuelle), "to", "mode" (foot en ville sur moins de 3 km, sinon car ; bike si vélo).
+- "model" : un objet ou être réel et concret à voir comme un objet posé devant soi : véhicule, avion, fusée, animal, dinosaure, instrument, meuble, œuvre d'art, statue, organe du corps, personnage, bâtiment ou monument vu comme une maquette isolée (« une maquette de la tour Eiffel »), machine, arme historique, fossile… "model_query" = 2 à 4 mots-clés EN ANGLAIS pour la bibliothèque Sketchfab (ex. "human heart anatomy", "ferrari f40", "t-rex skeleton").
+- "scene" : ce qui se construit mieux en formes simples : molécule, atome, système solaire, schéma scientifique, plan d'appartement ou de maison inventé, graphique, figure géométrique. "topic" = le sujet précis en français.
+En cas de doute entre model et scene pour un objet concret, choisis model.` },
+    { role: 'user', content: request },
+  ];
+  return parseJSON(await complete(messages, { json: true, maxTokens: 800 }));
+}
+
+// Infos pratiques pour un itinéraire (en plus du calcul du trajet).
+export async function routeInfo({ from, to, mode, distance, duration }) {
+  const lang = settings.lang.startsWith('en') ? 'English' : 'français';
+  const messages = [
+    { role: 'system', content: `Tu es un guide de voyage pratique et précis. Réponds en ${lang}, uniquement en JSON : {"speech":"1 à 2 phrases à dire à voix haute","display":"Markdown"}. ${facts.forPrompt()}` },
+    { role: 'user', content: `Itinéraire ${mode} de « ${from} » à « ${to} » : ${distance}, environ ${duration}.
+Rédige "display" avec : "### En bref" (2 phrases), "### Autres façons d'y aller" (transports en commun avec lignes probables, taxi/VTC avec prix indicatif, vélo… avec durées estimées), "### Sur le chemin" (3 à 5 lieux ou points d'intérêt à voir), "### Conseils" (horaires, affluence, sécurité, accessibilité, météo selon la saison). Signale ce qui est une estimation. Pas de tableau Markdown.` },
+  ];
+  return parseReply(await complete(messages, { json: true, maxTokens: 2500 }));
 }
 
 // Transforme une image de plan (croquis, plan d'architecte, photo de plan) en maquette 3D.
