@@ -1,9 +1,10 @@
 // Orchestrateur de Jarvis : relie la voix, l'IA, les commandes locales et l'affichage.
 import { settings, saveSettings, defaults } from './settings.js';
 import { Voice, chime } from './voice.js';
-import { think, see, canSee, studyNotes, memory, activeProviderLabel } from './brain.js';
+import { think, see, canSee, studyNotes, mindmapFor, memory, activeProviderLabel } from './brain.js';
 import * as camera from './camera.js';
-import { matchIntent, matchTableIntent } from './intents.js';
+import { matchIntent, matchTableIntent, matchMindmapIntent } from './intents.js';
+import * as mindmap from './mindmap.js';
 import * as tables from './tables.js';
 import { extractTable, renderMarkdown } from './markdown.js';
 import * as svc from './services.js';
@@ -60,6 +61,19 @@ async function handle(raw, { spoken = false } = {}) {
   ui.setLive('');
   bumpActivity();
 
+  // Cartes mentales : création (via l'IA dédiée) et affichage (instantané).
+  const mmCmd = matchMindmapIntent(text, { hasMindmap: mindmap.hasMindmap(), canRestore: mindmap.canRestore() });
+  if (mmCmd) {
+    if (mmCmd.create) {
+      setBusy(true);
+      const speech = await ACTIONS.mindmap_topic({ topic: mmCmd.create, place: mmCmd.place });
+      setBusy(false);
+      await say(speech, t);
+    } else if (mmCmd.fit) mindmap.fit();
+    else await say(mindmap.update(mmCmd), t);
+    return;
+  }
+
   // Disposition des tableaux et affichage en grand : instantané, sans IA.
   const tableCmd = matchTableIntent(text, { hasTable: tables.hasTable(), canRestore: tables.canRestore() });
   if (tableCmd) {
@@ -81,7 +95,7 @@ async function handle(raw, { spoken = false } = {}) {
       setBusy(false);
       await say(local.speech || speech, t);
     } else {
-      const reply = await think(text, { playing: player.nowPlaying(), screen: ui.describeStage(), table: tables.describe(), ...visionContext() });
+      const reply = await think(text, { playing: player.nowPlaying(), screen: ui.describeStage(), table: tables.describe(), mindmap: mindmap.describe(), ...visionContext() });
       if (t !== turn) return;
       // Un tableau Markdown dans la réponse devient un vrai tableau récapitulatif.
       if (reply.display && !reply.actions.some((a) => a?.type === 'table')) {
@@ -365,6 +379,63 @@ const ACTIONS = {
 
   async layout_reset() { ui.resetLayout(); return ''; },
 
+  // ---------- Cartes mentales ----------
+  async mindmap(a) {
+    const data = mindmap.show(a, { expand: !ui.normalizePlace(a.place), place: a.place });
+    return data ? '' : "Je n'ai pas pu construire cette carte mentale.";
+  },
+  async mindmap_topic({ topic, place, extra }) {
+    try {
+      const raw = await mindmapFor(topic, extra);
+      mindmap.show({ ...raw, title: raw.title || topic }, { expand: !ui.normalizePlace(place), place });
+      return raw.speech || `Voici la carte mentale sur ${topic}.`;
+    } catch (e) {
+      console.warn(e);
+      if (!settings.groqKey && !settings.geminiKey && !settings.claudeKey) showOnboarding();
+      return "Je n'ai pas réussi à construire la carte mentale.";
+    }
+  },
+  async mindmap_update(a) {
+    return mindmap.update({ layout: a.layout, expandAll: a.expand_all, collapseAll: a.collapse_all, toggle: a.toggle, close: a.close, restore: a.restore, expand: a.expand });
+  },
+
+  // ---------- Mise en forme libre ----------
+  // Page conçue entièrement par l'IA (HTML + CSS + JS), isolée dans un cadre sécurisé.
+  async page({ title, html, height, place }) {
+    if (!html) return '';
+    const id = `p${Date.now().toString(36)}`;
+    const frame = el('iframe', {
+      class: 'page-frame', title: title || 'Page', sandbox: 'allow-scripts',
+      referrerpolicy: 'no-referrer', style: `height:${Math.min(Math.max(+height || 520, 160), 2400)}px`,
+    });
+    frame.srcdoc = pageDocument(html, id);
+    frame.dataset.pid = id;
+    const c = ui.card(title || 'Page', el('div', { class: 'page-body' }, frame), { icon: '🧩', place, kind: 'page' });
+    if (!ui.normalizePlace(place) && (+height || 520) > 480) ui.expandCard(c);
+    return '';
+  },
+
+  // Disposition exacte des fenêtres (x, y, largeur, hauteur en %).
+  async arrange({ items = [] }) {
+    let n = 0;
+    for (const it of items.slice(0, 12)) {
+      const c = ui.findCardByKind(kindsFor(it.target)) || (it.target === 'last' ? ui.firstCard() : null);
+      if (c && ui.setFree(c, it)) n++;
+    }
+    return n ? '' : "Je ne trouve pas les éléments à disposer.";
+  },
+
+  async style(a) {
+    const c = a.target ? ui.findCardByKind(kindsFor(a.target)) : ui.firstCard();
+    return ui.styleCard(c, a) ? '' : `Je ne trouve pas d'élément « ${a.target} ».`;
+  },
+
+  async theme({ accent, background }) {
+    ui.applyTheme({ accent, background });
+    saveSettings({ themeAccent: accent === 'default' ? '' : (accent ?? settings.themeAccent), themeBackground: background ?? settings.themeBackground });
+    return '';
+  },
+
   // Réduire dans la barre / rouvrir (cartes et lecteur de musique).
   async minimize({ target = 'all' }) {
     const t = String(target).toLowerCase();
@@ -440,6 +511,9 @@ const ACTIONS = {
 // Mots utilisés pour désigner un élément → types de cartes correspondants.
 function kindsFor(word = '') {
   const w = String(word).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if (/carte mentale|mind ?map|mindmap|carte des idees|heuristique/.test(w)) return 'mindmap';
+  if (/camera|webcam/.test(w)) return 'camera';
+  if (/page|infographie|affiche|frise|presentation|dashboard|tableau de bord/.test(w)) return 'page';
   if (/photo|image|illustration|dessin|creation/.test(w)) return 'photo|images';
   if (/images|galerie/.test(w)) return 'images|photo';
   if (/video|clip|film|documentaire/.test(w)) return 'video';
@@ -524,6 +598,29 @@ function onFullscreenChange() {
   // La vue « en grand » se recale sur la nouvelle taille d'écran.
   dispatchEvent(new Event('resize'));
 }
+
+// Document complet d'une page libre : styles de base sombres + envoi de sa hauteur à Jarvis.
+function pageDocument(html, id) {
+  // color-scheme sombre obligatoire : sinon le navigateur peint un fond blanc derrière la page.
+  const scheme = '<meta name="color-scheme" content="dark"><style>:root{color-scheme:dark}</style>';
+  const base = `<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${scheme}
+<style>html,body{margin:0;background:transparent;color:#e6f3ff;font:16px/1.55 Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
+*{box-sizing:border-box}img{max-width:100%}a{color:#7fe3ff}body{padding:4px}</style>`;
+  const report = `<script>(()=>{const s=()=>parent.postMessage({jarvisPage:${JSON.stringify(id)},h:Math.ceil(document.documentElement.scrollHeight)},'*');
+addEventListener('load',s);new ResizeObserver(s).observe(document.documentElement);setTimeout(s,300);})();<\/script>`;
+  if (/<html[\s>]/i.test(html)) {
+    const withHead = /<head[\s>]/i.test(html) ? html.replace(/<head([^>]*)>/i, `<head$1>${scheme}`) : html.replace(/<html([^>]*)>/i, `<html$1><head>${scheme}</head>`);
+    return /<\/body>/i.test(withHead) ? withHead.replace(/<\/body>/i, `${report}</body>`) : `${withHead}${report}`;
+  }
+  return `<!doctype html><html><head>${base}</head><body>${html}${report}</body></html>`;
+}
+// Adapte la hauteur des pages libres à leur contenu (sauf en affichage en grand ou disposition libre).
+addEventListener('message', (e) => {
+  const d = e.data;
+  if (!d || typeof d.jarvisPage !== 'string') return;
+  const f = document.querySelector(`iframe[data-pid="${d.jarvisPage}"]`);
+  if (f && e.source === f.contentWindow) f.style.height = `${Math.min(Math.max(d.h, 120), 3000)}px`;
+});
 
 // Ce que l'IA doit savoir sur la caméra et les images disponibles.
 function visionContext() {
@@ -736,6 +833,7 @@ function startIdleWatch() {
 // ---------------- Démarrage ----------------
 function init() {
   startClock();
+  if (settings.themeAccent || settings.themeBackground) ui.applyTheme({ accent: settings.themeAccent, background: settings.themeBackground });
   startIdleWatch();
   player.initPlayer();
   bindUI();

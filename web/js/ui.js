@@ -69,6 +69,8 @@ export function card(title, body, { icon = '', actions = [], keep = false, place
   const pos = normalizePlace(place);
   if (pos) c.dataset.place = pos;
   c.dataset.icon = icon;
+  c.append(el('span', { class: 'card-resize', title: 'Redimensionner', 'aria-hidden': 'true' }));
+  bindFreeMove(c);
   minBtn.onclick = () => minimizeCard(c);
   expandBtn.onclick = () => (expanded === c ? collapseCard() : expandCard(c));
   closeBtn.onclick = () => removeCard(c, true);
@@ -100,7 +102,8 @@ const COL_OF = (p) => (p.endsWith('left') ? 0 : p.endsWith('right') ? 2 : 1);
 
 export function layoutStage() {
   const st = stage();
-  const cards = [...st.querySelectorAll('.card:not(.leaving):not(.minimized)')];
+  const cards = [...st.querySelectorAll('.card:not(.leaving):not(.minimized):not([data-free])')];
+  st.classList.toggle('has-free', !!st.querySelector('.card[data-free]:not(.minimized)'));
   const placed = cards.filter((c) => c.dataset.place);
   const active = placed.length > 0;
   st.classList.toggle('board', active);
@@ -136,6 +139,7 @@ export function placeCard(target, place) {
   // Si la place est déjà prise, les deux cartes échangent leurs positions.
   const other = [...stage().querySelectorAll('.card:not(.leaving)')].find((x) => x !== c && x.dataset.place === pos);
   if (other) { if (c.dataset.place) other.dataset.place = c.dataset.place; else delete other.dataset.place; }
+  clearFree(c);
   c.dataset.place = pos;
   // Les autres cartes sans position prennent le centre : on leur donne une vraie place libre.
   layoutStage();
@@ -154,8 +158,103 @@ export function swapCards(kindA, kindB) {
 }
 
 export function resetLayout() {
-  stage().querySelectorAll('.card').forEach((c) => { delete c.dataset.place; });
+  stage().querySelectorAll('.card').forEach((c) => { delete c.dataset.place; clearFree(c); clearStyle(c); });
   layoutStage();
+}
+
+// ---------- Placement libre : position et taille exactes (en % de l'écran de Jarvis) ----------
+const clampPct = (v, lo = 0, hi = 100) => Math.max(lo, Math.min(hi, +v || 0));
+export function setFree(c, { x, y, w, h }) {
+  if (!c) return false;
+  const W = clampPct(w ?? 40, 10, 100); const H = clampPct(h ?? 40, 8, 100);
+  c.dataset.free = '1';
+  delete c.dataset.place;
+  Object.assign(c.style, {
+    left: `${clampPct(x ?? 0, 0, 100 - W)}%`, top: `${clampPct(y ?? 0, 0, 100 - H)}%`,
+    width: `${W}%`, height: `${H}%`, gridRow: '', gridColumn: '',
+  });
+  restoreCard(c);
+  layoutStage();
+  return true;
+}
+function clearFree(c) {
+  if (!c.dataset.free) return;
+  delete c.dataset.free;
+  ['left', 'top', 'width', 'height', 'zIndex'].forEach((k) => { c.style[k] = ''; });
+}
+let zTop = 5;
+function bindFreeMove(c) {
+  const head = () => c.querySelector('.card-head');
+  let drag = null;
+  const onDown = (e, mode) => {
+    if (e.button !== 0 || c.classList.contains('expanded') || matchMedia('(max-width: 820px)').matches) return;
+    if (mode === 'move' && e.target.closest('button, a, input, select, .seg')) return;
+    const st = stage().getBoundingClientRect();
+    const r = c.getBoundingClientRect();
+    if (!c.dataset.free) setFree(c, { x: ((r.left - st.left) / st.width) * 100, y: ((r.top - st.top + stage().scrollTop) / st.height) * 100, w: (r.width / st.width) * 100, h: (r.height / st.height) * 100 });
+    c.style.zIndex = String(++zTop);
+    drag = { mode, x: e.clientX, y: e.clientY, st, left: parseFloat(c.style.left), top: parseFloat(c.style.top), w: parseFloat(c.style.width), h: parseFloat(c.style.height) };
+    c.classList.add('dragging');
+    e.target.setPointerCapture?.(e.pointerId);
+    e.preventDefault();
+  };
+  const onMove = (e) => {
+    if (!drag) return;
+    const dx = ((e.clientX - drag.x) / drag.st.width) * 100;
+    const dy = ((e.clientY - drag.y) / drag.st.height) * 100;
+    if (drag.mode === 'move') {
+      c.style.left = `${clampPct(drag.left + dx, 0, 100 - drag.w)}%`;
+      c.style.top = `${clampPct(drag.top + dy, 0, 100 - drag.h)}%`;
+    } else {
+      c.style.width = `${clampPct(drag.w + dx, 12, 100 - drag.left)}%`;
+      c.style.height = `${clampPct(drag.h + dy, 10, 100 - drag.top)}%`;
+    }
+  };
+  const onUp = () => { if (drag) { drag = null; c.classList.remove('dragging'); } };
+  requestAnimationFrame(() => {
+    const h = head();
+    h?.addEventListener('pointerdown', (e) => onDown(e, 'move'));
+    h?.addEventListener('pointermove', onMove);
+    h?.addEventListener('pointerup', onUp);
+    const rz = c.querySelector('.card-resize');
+    rz?.addEventListener('pointerdown', (e) => onDown(e, 'resize'));
+    rz?.addEventListener('pointermove', onMove);
+    rz?.addEventListener('pointerup', onUp);
+  });
+}
+
+// ---------- Style d'une carte ----------
+const COLORS = {
+  rouge: 0, red: 0, orange: 28, or: 42, dore: 42, doré: 42, gold: 42, jaune: 52, yellow: 52, vert: 145, green: 145,
+  turquoise: 172, cyan: 193, bleu: 215, blue: 215, indigo: 238, violet: 265, purple: 265, mauve: 285, rose: 330, pink: 330, magenta: 310,
+};
+export function colorToHue(v) {
+  if (v == null) return null;
+  const k = String(v).toLowerCase().trim();
+  if (k in COLORS) return COLORS[k];
+  const m = /^#?([0-9a-f]{6}|[0-9a-f]{3})$/i.exec(k);
+  if (!m) return null;
+  let hex = m[1];
+  if (hex.length === 3) hex = hex.split('').map((c) => c + c).join('');
+  const [r, g, b] = [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+  const max = Math.max(r, g, b); const min = Math.min(r, g, b); const d = max - min;
+  if (!d) return 200;
+  let h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  h = Math.round(h * 60);
+  return h < 0 ? h + 360 : h;
+}
+export function styleCard(c, { accent, background, size, title } = {}) {
+  if (!c) return false;
+  const hue = colorToHue(accent);
+  if (hue != null) { c.style.setProperty('--card-h', hue); c.dataset.accent = '1'; }
+  if (background) c.dataset.bg = ['glass', 'solid', 'transparent', 'glow', 'light'].includes(background) ? background : 'glass';
+  if (size) c.dataset.size = ['small', 'normal', 'large', 'huge'].includes(size) ? size : 'normal';
+  if (title) setCardTitle(c, title);
+  return true;
+}
+function clearStyle(c) {
+  delete c.dataset.accent; delete c.dataset.bg; delete c.dataset.size;
+  c.style.removeProperty('--card-h');
 }
 
 export function findCardByKind(kind) {
@@ -360,3 +459,22 @@ export function lightbox(items, start = 0) {
 export const chip = (label, onClick, href) => href
   ? el('a', { class: 'chip', href, target: '_blank', rel: 'noopener' }, label)
   : el('button', { class: 'chip', type: 'button', onclick: onClick }, label);
+
+// ---------- Thème de l'interface (couleur d'accent, ambiance) ----------
+export function applyTheme({ accent, background } = {}) {
+  const root = document.documentElement.style;
+  const hue = colorToHue(accent);
+  if (hue != null) {
+    const sat = hue >= 30 && hue <= 60 ? 95 : 100;
+    root.setProperty('--c-700', `hsl(${hue}, 90%, 30%)`);
+    root.setProperty('--c-600', `hsl(${hue}, 92%, 40%)`);
+    root.setProperty('--c-500', `hsl(${hue}, ${sat}%, 58%)`);
+    root.setProperty('--c-400', `hsl(${hue}, ${sat}%, 70%)`);
+    root.setProperty('--c-300', `hsl(${hue}, ${sat}%, 82%)`);
+    root.setProperty('--accent-h', hue);
+  } else if (accent === 'default' || accent === 'reset') {
+    ['--c-700', '--c-600', '--c-500', '--c-400', '--c-300', '--accent-h'].forEach((k) => root.removeProperty(k));
+  }
+  if (background) document.body.dataset.ambiance = ['aurora', 'dark', 'minimal', 'vivid'].includes(background) ? background : 'aurora';
+  return hue;
+}

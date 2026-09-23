@@ -3,7 +3,13 @@
 const clean = (s) => s.trim().replace(/[.!?]+$/, '').replace(/^(s'il te plait|s'il vous plait|stp|svp)\s+/i, '').trim();
 const obj = (s) => clean(s).replace(/^(de |des |du |d'|d’|la |le |les |l'|l’|une |un |sur |à propos de |a propos de )+/i, '').trim();
 
+const COLOR_WORDS = 'rouge|orange|or|dor[ée]|jaune|vert|turquoise|cyan|bleu|indigo|violet|mauve|rose|magenta|#[0-9a-f]{3,6}';
 const RULES = [
+  // Couleurs de l'interface
+  [new RegExp(`^(?:mets|passe|change|colore|peins|repeins|fais)(?:[- ]moi)?\\s+(?:l'interface|l’interface|jarvis|l'[ée]cran|les couleurs|la couleur|le th[èe]me|tout|l'appli(?:cation)?)\\s+(?:en|au|à la couleur)\\s+(${COLOR_WORDS})$|^(?:th[èe]me|couleur|interface|ambiance)\\s+(${COLOR_WORDS})$`, 'i'),
+    (m) => ({ actions: [{ type: 'theme', accent: (m[1] || m[2]).toLowerCase() }], speech: '' })],
+  [/^(?:remets|reviens|retourne|repasse)(?:[- ]moi)?\s+(?:aux?|les|la|à la)\s+(?:couleurs?|th[èe]me)\s+(?:par d[ée]faut|normale?s?|d'origine|habituelle?s?|de base)$/i,
+    () => ({ actions: [{ type: 'theme', accent: 'default' }], speech: '' })],
   // Plein écran de l'application
   [/^(?:(?:mets?|passe|affiche|lance|active)(?:[- ](?:toi|moi|jarvis|l'application|l'appli|l'écran|tout))*\s+)?(?:en )?plein[- ]écran$/i,
     () => ({ actions: [{ type: 'fullscreen', on: true }], speech: '' })],
@@ -85,6 +91,7 @@ const PLACE_WORDS = [
   [/en bas|en-dessous|en dessous/, 'bottom'],
   [/au centre|au milieu|centr[ée]/, 'center'],
 ];
+export { splitPlace };
 export function parsePlace(text = '') {
   const t = text.toLowerCase();
   for (const [re, p] of PLACE_WORDS) if (re.test(t)) return p;
@@ -107,7 +114,7 @@ export function matchIntent(input) {
   if (mv && parsePlace(mv[2])) return { actions: [{ type: 'move', target: mv[1], place: parsePlace(mv[2]) }], speech: '' };
   mv = full.match(/^(?:[ée]change|inverse|permute|intervertis)\s+(?:la |le |les |l'|l’)?(\S+)\s+et\s+(?:la |le |les |l'|l’)?(\S+)$/i);
   if (mv && !/lignes?|colonnes?/i.test(full)) return { actions: [{ type: 'swap', a: mv[1], b: mv[2] }], speech: '' };
-  if (/^(?:remets?|reviens|retourne|repasse)\b.*\b(?:normale?s?|normalement|par d[ée]faut|habituelle?s?)$|^(?:annule|efface|enl[èe]ve|supprime) (?:la |les )?(?:disposition|positions?|placements?)$/i.test(full)) {
+  if (!/couleur|th[èe]me/i.test(full) && /^(?:remets?|reviens|retourne|repasse)\b.*\b(?:normale?s?|normalement|par d[ée]faut|habituelle?s?)$|^(?:annule|efface|enl[èe]ve|supprime) (?:la |les )?(?:disposition|positions?|placements?)$/i.test(full)) {
     return { actions: [{ type: 'layout_reset' }], speech: '' };
   }
 
@@ -222,5 +229,34 @@ export function matchTableIntent(input, { hasTable = false, canRestore = false }
   m = raw.match(/(?:cache|masque|enl[èe]ve|retire|supprime)(?:[- ]moi)?\s+(?:la |les )?colonnes?\s+(.+)$/i);
   if (m) return { hide: m[1].split(/\s+et\s+|,\s*/).map((x) => x.trim()).filter(Boolean) };
   if (/(affiche|montre|remets|reaffiche)( moi)? (toutes )?les colonnes/.test(s)) return { showAll: true };
+  return null;
+}
+
+// ---------- Cartes mentales ----------
+const MM = "carte mentale|cartes mentales|carte heuristique|mind ?map|sch[ée]ma heuristique|carte des id[ée]es|carte conceptuelle";
+export function matchMindmapIntent(input, { hasMindmap = false, canRestore = false } = {}) {
+  const raw = clean(input);
+  let m = raw.match(new RegExp(`^(?:(?:fais|fait|cr[ée]e|g[ée]n[èe]re|dessine|construis|montre|affiche|pr[ée]pare|r[ée]alise|je veux|j'aimerais)(?:[- ]moi)?\\s+)?(?:une |la |ma )?(?:${MM})\\s+(?:sur|de|du|des|d'|d’|à propos de|a propos de|pour|concernant)?\\s*(.+)$`, 'i'));
+  if (m && !/^(en|sous forme)\b/i.test(m[1])) {
+    const { s: topic, place } = splitPlace(m[1]);
+    return { create: topic.replace(/^(la |le |les |l'|l’)/i, '').trim(), place };
+  }
+  const s = fold(raw);
+  if (/^(re)?(affiche|montre|remets|ouvre|rouvre)(-| )?(moi )?(a nouveau |de nouveau )?(la |ma )?(derniere )?(carte mentale|carte|mind ?map)( precedente)?$/.test(s)) {
+    if (!hasMindmap && canRestore) return { restore: true };
+    if (hasMindmap) return { expand: true };
+  }
+  if (!hasMindmap) return null;
+  if (/^(ferme|supprime|enleve|retire|efface)( la| cette)? (carte mentale|carte|mind ?map)$/.test(s)) return { close: true };
+  if (/\b(arbre|arborescence)\b/.test(s) && /\b(en|mets|passe|affiche|forme|vue)\b/.test(s)) return { layout: 'tree' };
+  if (/\b(organigramme|hierarchi\w*|de haut en bas|verticale?)\b/.test(s) && /\b(en|mets|passe|affiche|forme|vue)\b/.test(s)) return { layout: 'org' };
+  if (/\b(en etoile|radiale?|en carte mentale|en carte|autour du centre)\b/.test(s) && /\b(en|mets|passe|affiche|remets|repasse)\b/.test(s)) return { layout: 'mindmap' };
+  if (/^(deplie|developpe|ouvre|etends)( moi)? (tout|toutes les branches|la carte)$/.test(s)) return { expandAll: true };
+  if (/^(replie|referme|resserre)( moi)? (tout|toutes les branches|la carte)$/.test(s)) return { collapseAll: true };
+  m = raw.match(/^(d[ée]plie|d[ée]veloppe|[ée]tends)(?:[- ]moi)?\s+(?:la branche\s+)?(?:la |le |les |l'|l’)?(.+)$/i);
+  if (m) return { toggle: m[2], open: true };
+  m = raw.match(/^(replie|referme)(?:[- ]moi)?\s+(?:la branche\s+)?(?:la |le |les |l'|l’)?(.+)$/i);
+  if (m) return { toggle: m[2], open: false };
+  if (/^(recentre|centre)( la carte)?$/.test(s)) return { fit: true };
   return null;
 }
