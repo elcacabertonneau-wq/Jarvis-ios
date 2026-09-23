@@ -32,6 +32,23 @@ Demandez un récap, un comparatif, un classement ou un planning (« fais-moi un 
 
 Pour changer le contenu (« ajoute une colonne prix »), Jarvis passe par l'IA, qui reçoit le tableau affiché. Toute carte (images, vidéo, fiche…) peut aussi s'afficher en grand avec le bouton ⤢ ou en disant « agrandis ».
 
+### Caméra et images
+| Dites… | Effet |
+|---|---|
+| « Affiche ma caméra » (ou « … à gauche »), bouton 📷 en haut | Affiche la webcam dans une carte (se place comme les autres éléments) |
+| « Qu'est-ce que tu vois ? », « étudie ce qu'il y a sur ma caméra », « qu'est-ce que je tiens ? », « lis ce texte » | Jarvis prend une image de la caméra et l'analyse |
+| « Fais des recherches à partir de ma caméra » | Identifie ce qu'il voit puis lance fiche, images, vidéo ou récap |
+| « Change de caméra », « ferme la caméra » | Caméra avant/arrière, arrêt |
+
+Pour une image : bouton 📎 dans la barre de saisie, **glisser-déposer** sur la fenêtre, ou **Ctrl+V**. Puis « analyse cette image », « fais des recherches à partir de cette image », « trouve des images similaires », « lis le texte de cette image ». Jarvis peut aussi analyser une photo déjà affichée.
+
+L'analyse d'image utilise une IA capable de voir : **Gemini** (clé gratuite) ou **Groq** (même clé gratuite, modèle d'images), ou Claude si sa clé est renseignée. L'image n'est envoyée qu'au moment d'une analyse.
+
+### Réduire les fenêtres
+Chaque carte a un bouton **—** qui la réduit dans une barre en bas (elle continue de fonctionner : vidéo, caméra, minuteur). Le lecteur de musique se réduit aussi en une pastille 🎵. Un clic sur une pastille la rouvre.
+
+À la voix : « minimise tout », « réduis la musique », « range la vidéo », « rouvre la caméra », « réaffiche tout ».
+
 ### Placer les éléments à l'écran
 Dites où vous voulez chaque élément : « fais des recherches sur les trous noirs et place un récap à droite, une photo à gauche et une vidéo en bas ». L'écran devient un tableau de bord organisé (positions : gauche, droite, haut, bas, centre et les 4 coins). Une commande simple accepte aussi une position : « montre des photos de chats à gauche ».
 
@@ -105,7 +122,8 @@ web/
 ├── js/voice.js           Reconnaissance vocale, mot d'activation, synthèse vocale
 ├── js/intents.js         Commandes reconnues localement (sans IA)
 ├── js/tables.js          Tableaux récapitulatifs : 4 dispositions, tri, mise en évidence
-├── js/brain.js           IA (Groq / Gemini / Claude / Pollinations), mémoire de conversation
+├── js/brain.js           IA (Groq / Gemini / Claude / Pollinations), vision, mémoire de conversation
+├── js/camera.js          Caméra, capture, images envoyées
 ├── js/services.js        Images, Wikipédia, YouTube, radio, météo
 ├── js/player.js          Lecteur radio et YouTube
 ├── js/ui.js              Cartes, disposition libre, affichage en grand, galerie, visionneuse

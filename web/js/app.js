@@ -1,10 +1,11 @@
 // Orchestrateur de Jarvis : relie la voix, l'IA, les commandes locales et l'affichage.
 import { settings, saveSettings, defaults } from './settings.js';
 import { Voice, chime } from './voice.js';
-import { think, studyNotes, memory, activeProviderLabel } from './brain.js';
+import { think, see, canSee, studyNotes, memory, activeProviderLabel } from './brain.js';
+import * as camera from './camera.js';
 import { matchIntent, matchTableIntent } from './intents.js';
 import * as tables from './tables.js';
-import { extractTable } from './markdown.js';
+import { extractTable, renderMarkdown } from './markdown.js';
 import * as svc from './services.js';
 import * as player from './player.js';
 import * as ui from './ui.js';
@@ -80,7 +81,7 @@ async function handle(raw, { spoken = false } = {}) {
       setBusy(false);
       await say(local.speech || speech, t);
     } else {
-      const reply = await think(text, { playing: player.nowPlaying(), screen: ui.describeStage(), table: tables.describe() });
+      const reply = await think(text, { playing: player.nowPlaying(), screen: ui.describeStage(), table: tables.describe(), ...visionContext() });
       if (t !== turn) return;
       // Un tableau Markdown dans la réponse devient un vrai tableau récapitulatif.
       if (reply.display && !reply.actions.some((a) => a?.type === 'table')) {
@@ -363,6 +364,77 @@ const ACTIONS = {
   },
 
   async layout_reset() { ui.resetLayout(); return ''; },
+
+  // Réduire dans la barre / rouvrir (cartes et lecteur de musique).
+  async minimize({ target = 'all' }) {
+    const t = String(target).toLowerCase();
+    if (t === 'all' || t === 'tout') { const n = ui.minimizeAll(); const m = player.minimizeDock(); return n || m ? '' : "Il n'y a rien à réduire."; }
+    if (/musique|radio|lecteur|son/.test(t)) return player.minimizeDock() ? '' : "Aucune musique n'est en cours.";
+    return ui.minimizeKind(t.includes('cam') ? 'camera' : kindsFor(t)) ? '' : `Je ne trouve pas d'élément « ${target} » à réduire.`;
+  },
+  async restore({ target = 'all' }) {
+    const t = String(target).toLowerCase();
+    if (t === 'all' || t === 'tout') { const n = ui.restoreAll(); const m = player.restoreDock(); return n || m ? '' : "Rien n'est réduit."; }
+    if (/musique|radio|lecteur|son/.test(t)) return player.restoreDock() ? '' : "Le lecteur n'est pas réduit.";
+    return ui.restoreKind(t.includes('cam') ? 'camera' : kindsFor(t)) ? '' : `Je ne trouve pas d'élément « ${target} » réduit.`;
+  },
+
+  async camera({ on = true, switch: sw, place }) {
+    if (sw) { await camera.switchCamera(); return ''; }
+    if (!on) { camera.closeCamera(); return ''; }
+    try {
+      await camera.openCamera({ place, onAnalyze: () => handle('analyse ce que tu vois sur la caméra'), onSearch: () => handle('fais des recherches sur ce que tu vois sur la caméra') });
+      return '';
+    } catch (e) {
+      ui.errorCard(e.message);
+      return e.message;
+    }
+  },
+
+  // Regarder la caméra ou une image, puis répondre (et lancer des recherches si demandé).
+  async look({ prompt = 'Décris ce que tu vois.' }) {
+    if (!canSee()) {
+      showOnboarding();
+      return "Pour analyser une image, j'ai besoin d'une clé gratuite Groq ou Gemini dans les réglages.";
+    }
+    const p = prompt.toLowerCase();
+    const wantsCam = /cam[ée]ra|webcam|\bcam\b|tu vois|tu me vois|regarde|je (?:te )?montre|je tiens|devant|dans (?:ma|la) main/.test(p);
+    const wantsImg = /image|photo|fichier|document|capture|[ée]cran/.test(p) && !/cam[ée]ra|webcam/.test(p);
+    const recent = camera.getLastImage();
+    let image = null;
+    if (wantsImg && !wantsCam) image = recent || await camera.imageFromScreen();
+    if (!image && (wantsCam || camera.isOpen() || !recent)) {
+      try {
+        if (!camera.isOpen()) await ACTIONS.camera({ on: true });
+        if (!camera.isOpen()) return '';
+        camera.setScanning(true);
+        image = { dataUrl: await camera.capture(), label: 'caméra', source: 'camera' };
+      } catch (e) {
+        camera.setScanning(false);
+        return e.message;
+      }
+    }
+    image = image || recent;
+    if (!image) return "Je n'ai aucune image à analyser.";
+    try {
+      const reply = await see(prompt, image, { playing: player.nowPlaying(), screen: ui.describeStage(), table: tables.describe(), ...visionContext() });
+      camera.setScanning(false);
+      // Carte d'analyse : l'image regardée + la réponse détaillée.
+      const shot = image.dataUrl || image.url;
+      if (reply.display || shot) {
+        const body = el('div', { class: 'vision' },
+          el('img', { class: 'vision-shot', src: shot, alt: 'Image analysée', onclick: () => ui.lightbox([{ full: shot, thumb: shot, title: 'Image analysée' }]) }),
+          reply.display ? el('div', { class: 'md', html: renderMarkdown(reply.display) }) : el('p', { class: 'md' }, reply.speech));
+        ui.card(reply.title || 'Analyse visuelle', body, { icon: '👁️', place: reply.place, kind: 'text' });
+      }
+      const speech = await runActions(reply.actions, prompt);
+      return reply.speech || speech || 'Voici mon analyse.';
+    } catch (e) {
+      camera.setScanning(false);
+      console.warn(e);
+      return "Je n'ai pas réussi à analyser l'image. Vérifiez qu'une clé Groq ou Gemini est bien configurée.";
+    }
+  },
 };
 
 // Mots utilisés pour désigner un élément → types de cartes correspondants.
@@ -453,6 +525,36 @@ function onFullscreenChange() {
   dispatchEvent(new Event('resize'));
 }
 
+// Ce que l'IA doit savoir sur la caméra et les images disponibles.
+function visionContext() {
+  const img = camera.getLastImage();
+  return {
+    camera: camera.isOpen(),
+    image: img && Date.now() - img.at < 10 * 60 * 1000 ? `${img.source === 'upload' ? 'envoyée' : 'à l’écran'} : ${img.label}` : '',
+  };
+}
+
+// ---------------- Images envoyées (bouton, glisser-déposer, coller) ----------------
+async function receiveImage(file) {
+  if (!file?.type?.startsWith('image/')) return;
+  firstGesture();
+  try {
+    const dataUrl = await camera.toJpeg(file, 1280);
+    camera.setLastImage({ dataUrl, label: file.name || 'image collée', source: 'upload' });
+    const body = el('div', {},
+      el('figure', { class: 'hero-fig' }, el('img', { class: 'hero-img', src: dataUrl, alt: file.name || 'Image envoyée', onclick: () => ui.lightbox([{ full: dataUrl, thumb: dataUrl, title: file.name }]) })),
+      el('div', { class: 'actions-row' },
+        chip('🔎 Analyser', () => handle('analyse cette image')),
+        chip('📚 Rechercher des infos', () => handle('fais des recherches à partir de cette image')),
+        chip('🖼️ Images similaires', () => handle('trouve des images similaires à cette image')),
+        chip('📝 Lire le texte', () => handle('lis le texte de cette image'))));
+    ui.card(`Image · ${file.name || 'collée'}`, body, { icon: '🖼️', kind: 'photo' });
+    await say('Image reçue. Que voulez-vous savoir ?');
+  } catch {
+    ui.errorCard("Je n'arrive pas à lire cette image.");
+  }
+}
+
 // ---------------- Interface ----------------
 function firstGesture() {
   voice.unlock();
@@ -498,6 +600,22 @@ function bindUI() {
     handle(v);
   };
   document.querySelectorAll('.suggest [data-cmd]').forEach((b) => { b.onclick = () => { firstGesture(); handle(b.dataset.cmd); }; });
+
+  // Images : bouton 📎, glisser-déposer sur la fenêtre, ou coller (Ctrl+V).
+  $('attach').onclick = () => $('file').click();
+  $('file').onchange = (e) => { receiveImage(e.target.files?.[0]); e.target.value = ''; };
+  $('btn-camera').onclick = () => (camera.isOpen() ? camera.closeCamera() : handle('affiche ma caméra'));
+  addEventListener('dragover', (e) => { if ([...(e.dataTransfer?.items || [])].some((i) => i.kind === 'file')) { e.preventDefault(); document.body.classList.add('dropping'); } });
+  addEventListener('dragleave', (e) => { if (!e.relatedTarget) document.body.classList.remove('dropping'); });
+  addEventListener('drop', (e) => {
+    document.body.classList.remove('dropping');
+    const f = [...(e.dataTransfer?.files || [])].find((x) => x.type.startsWith('image/'));
+    if (f) { e.preventDefault(); receiveImage(f); }
+  });
+  addEventListener('paste', (e) => {
+    const f = [...(e.clipboardData?.files || [])].find((x) => x.type.startsWith('image/'));
+    if (f) { e.preventDefault(); receiveImage(f); }
+  });
 
   $('btn-wake').onclick = () => {
     firstGesture();

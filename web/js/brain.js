@@ -27,6 +27,8 @@ Date et heure actuelles : ${now.toLocaleString(settings.lang, { dateStyle: 'full
 ${ctx.playing ? `En cours de lecture : ${ctx.playing}.` : ''}
 ${ctx.screen ? `Actuellement affiché à l'écran : ${ctx.screen}.` : ''}
 ${ctx.table ? `Tableau actuellement affiché (JSON) : ${ctx.table}` : ''}
+${ctx.camera ? 'La caméra de l\'utilisateur est ouverte à l\'écran.' : ''}
+${ctx.image ? `L'utilisateur a fourni une image récemment (${ctx.image}).` : ''}
 
 Tu contrôles une interface avec un écran et des lecteurs multimédia. Tu réponds TOUJOURS avec un unique objet JSON valide, sans texte autour :
 {
@@ -50,10 +52,14 @@ Actions disponibles (0, 1 ou plusieurs) :
 - {"type":"table_update","layout":"table|cards|list|compare","sort":{"column":"nom de colonne","order":"asc|desc"},"highlight":"colonne ou ligne","hide":["colonne"],"show_all":true,"transpose":true,"expand":true|false,"close":true} : modifier la disposition du tableau affiché (ne mets que les champs utiles)
 - {"type":"clear"} : effacer l'écran et revenir à l'accueil
 - {"type":"fullscreen","on":true|false} : passer l'application en plein écran ou en sortir
+- {"type":"camera","on":true|false,"place":"..."} : afficher ou fermer la caméra de l'utilisateur
+- {"type":"look","prompt":"la demande de l'utilisateur"} : regarder la caméra (ou l'image fournie) pour répondre. Utilise-le dès que la demande porte sur ce que voit la caméra, ce que l'utilisateur montre ou tient, ou sur l'image fournie. Tu ne vois PAS l'image sans cette action.
 - {"type":"text","title":"...","content":"Markdown","place":"..."} : une carte de texte supplémentaire (explication, résumé rédigé…)
 - {"type":"move","target":"photo|images|video|recap|fiche|meteo|minuteur|texte","place":"..."} : déplacer un élément déjà affiché
 - {"type":"swap","a":"...","b":"..."} : échanger la position de deux éléments affichés
 - {"type":"layout_reset"} : remettre l'affichage normal (sans positions)
+- {"type":"minimize","target":"all|musique|video|photo|recap|camera|meteo|minuteur|fiche|texte"} : réduire des fenêtres dans la barre du bas (elles continuent de fonctionner)
+- {"type":"restore","target":"all|…"} : rouvrir des fenêtres réduites
 
 Disposition de l'écran : toute action qui affiche quelque chose (images, generate_image, video, study, weather, timer, table, text) accepte "place" parmi : left, right, top, bottom, center, top-left, top-right, bottom-left, bottom-right. Quand l'utilisateur précise où mettre les éléments (« récap à droite, photo à gauche, vidéo en bas »), crée UNE action par élément avec sa "place". Une « photo » = images avec count 1. Un « récap » = table (ou text si ce n'est pas tabulaire). Sans indication de position, n'ajoute pas "place".
 
@@ -216,6 +222,132 @@ export async function think(userText, ctx = {}) {
   const brief = reply.actions.map((x) => (x?.type === 'table' ? { type: 'table', title: x.title, columns: x.columns, rows: (x.rows || []).length } : x));
   memory.push('assistant', JSON.stringify({ speech: reply.speech, actions: brief }));
   return reply;
+}
+
+// ---------- Vision : analyse d'une image (caméra ou fichier) ----------
+const VISION_RULES = `
+
+Une image est jointe à ce message (source : SOURCE). Tu la vois réellement : analyse-la attentivement pour répondre.
+- Décris ce qui est utile à la demande, pas tout. Identifie précisément (objet, marque, modèle, espèce, lieu, œuvre, plat…) et dis ton niveau de certitude.
+- S'il y a du texte (document, étiquette, écran, tableau blanc), lis-le et utilise-le ; si on te demande de le traduire ou de le résumer, fais-le dans "display".
+- Si l'utilisateur veut des recherches ou en savoir plus, déclenche les actions adaptées avec des requêtes PRÉCISES issues de ce que tu identifies : "study" (fiche), "images" (photos similaires, requête en anglais), "video", "table" (récap, comparatif, caractéristiques, prix indicatifs…), en respectant les positions demandées.
+- N'utilise jamais l'action "look" dans cette réponse (tu as déjà l'image).`;
+
+const dataParts = (dataUrl) => {
+  const m = /^data:([^;]+);base64,(.*)$/.exec(dataUrl || '');
+  return m ? { mime: m[1], b64: m[2] } : null;
+};
+
+async function groqVision(messages, image) {
+  const models = [...new Set([settings.groqVisionModel, 'meta-llama/llama-4-scout-17b-16e-instruct', 'meta-llama/llama-4-maverick-17b-128e-instruct'].filter(Boolean))];
+  const last = messages[messages.length - 1];
+  const withImage = [...messages.slice(0, -1), { role: 'user', content: [
+    { type: 'text', text: last.content },
+    { type: 'image_url', image_url: { url: image.dataUrl || image.url } },
+  ] }];
+  let err;
+  for (const model of models) {
+    for (const json of [true, false]) {
+      try {
+        const data = await fetchJSON('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          timeout: 45000,
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${settings.groqKey}` },
+          body: JSON.stringify({ model, messages: withImage, temperature: 0.4, max_tokens: 3000, ...(json ? { response_format: { type: 'json_object' } } : {}) }),
+        });
+        return data.choices[0].message.content;
+      } catch (e) { err = e; if (!/HTTP (400|404)/.test(e.message)) throw e; }
+    }
+  }
+  throw err;
+}
+
+async function geminiVision(messages, image) {
+  const p = dataParts(image.dataUrl);
+  if (!p) throw new Error('Gemini a besoin de l’image elle-même');
+  const system = messages.find((m) => m.role === 'system')?.content;
+  const turns = messages.filter((m) => m.role !== 'system');
+  const contents = turns.map((m, i) => ({
+    role: m.role === 'assistant' ? 'model' : 'user',
+    parts: i === turns.length - 1 ? [{ inline_data: { mime_type: p.mime, data: p.b64 } }, { text: m.content }] : [{ text: m.content }],
+  }));
+  const model = settings.geminiModel || 'gemini-2.5-flash';
+  const data = await fetchJSON(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${settings.geminiKey}`, {
+    method: 'POST',
+    timeout: 45000,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      systemInstruction: system ? { parts: [{ text: system }] } : undefined,
+      contents,
+      generationConfig: { temperature: 0.4, maxOutputTokens: 3000, responseMimeType: 'application/json' },
+    }),
+  });
+  return data.candidates?.[0]?.content?.parts?.map((x) => x.text).join('') || '';
+}
+
+async function claudeVision(messages, image) {
+  const p = dataParts(image.dataUrl);
+  const system = messages.find((m) => m.role === 'system')?.content;
+  const turns = messages.filter((m) => m.role !== 'system');
+  const last = turns[turns.length - 1];
+  const data = await fetchJSON('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    timeout: 45000,
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': settings.claudeKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true',
+    },
+    body: JSON.stringify({
+      model: settings.claudeModel || 'claude-haiku-4-5',
+      max_tokens: 3000,
+      system,
+      messages: [...turns.slice(0, -1), { role: 'user', content: [
+        p ? { type: 'image', source: { type: 'base64', media_type: p.mime, data: p.b64 } } : { type: 'image', source: { type: 'url', url: image.url } },
+        { type: 'text', text: last.content },
+      ] }],
+    }),
+  });
+  return (data.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('');
+}
+
+const VISION = {
+  gemini: { fn: geminiVision, ok: (img) => !!settings.geminiKey && !!img.dataUrl },
+  groq: { fn: groqVision, ok: () => !!settings.groqKey },
+  claude: { fn: claudeVision, ok: () => !!settings.claudeKey },
+};
+
+export const canSee = () => !!(settings.geminiKey || settings.groqKey || settings.claudeKey);
+
+// Envoie l'image et la demande à une IA capable de voir ; renvoie { speech, display, title, place, actions }.
+export async function see(userText, image, ctx = {}) {
+  const order = ['gemini', 'groq', 'claude'];
+  if (VISION[settings.provider]) order.unshift(...order.splice(order.indexOf(settings.provider), 1));
+  const source = image.source === 'camera' ? 'caméra en direct de l’utilisateur' : image.source === 'upload' ? 'image envoyée par l’utilisateur' : 'image affichée à l’écran';
+  const messages = [
+    { role: 'system', content: systemPrompt(ctx) + VISION_RULES.replace('SOURCE', source) },
+    ...memory.history,
+    { role: 'user', content: userText },
+  ];
+  let lastErr = new Error('Aucune IA capable de voir n’est configurée.');
+  for (const name of order) {
+    const p = VISION[name];
+    if (!p.ok(image)) continue;
+    try {
+      const raw = await p.fn(messages, image);
+      if (!raw?.trim()) continue;
+      const reply = parseReply(raw);
+      reply.actions = reply.actions.filter((a) => a?.type !== 'look');
+      memory.push('user', `[image : ${source}] ${userText}`);
+      memory.push('assistant', JSON.stringify({ speech: reply.speech, actions: reply.actions.map((a) => (a?.type === 'table' ? { type: 'table', title: a.title } : a)) }));
+      return reply;
+    } catch (e) {
+      lastErr = e;
+      console.warn(`[Jarvis] vision ${name} a échoué :`, e.message);
+    }
+  }
+  throw lastErr;
 }
 
 // Génère une fiche d'étude structurée à partir de sources Wikipédia.
