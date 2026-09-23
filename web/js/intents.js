@@ -248,6 +248,21 @@ export function matchMindmapIntent(input, { hasMindmap = false, canRestore = fal
   }
   if (!hasMindmap) return null;
   if (/^(ferme|supprime|enleve|retire|efface)( la| cette)? (carte mentale|carte|mind ?map)$/.test(s)) return { close: true };
+
+  // Images et liens sur la carte.
+  const url = raw.match(/https?:\/\/\S+/i)?.[0];
+  m = raw.match(/^(?:ajoute|mets|place|colle|pose)(?:[- ]moi)?\s+(?:cette|mon|ma|l'|l’)\s*(?:image|photo|capture)\s+(?:sur|à|a|dans|pour)\s+(?:la branche |l'idée |l’idée |le nœud |le noeud )?(?:la |le |les |l'|l’)?(.+)$/i);
+  if (m) return { userImage: { target: m[1] } };
+  if (/^(ajoute|mets|rajoute|illustre)( moi)? (des |les )?(images|photos|illustrations)( partout| a| sur| dans| aux| pour)?( la carte( mentale)?| toutes les branches| chaque branche| les branches| toutes les idees)?$/.test(s) || /^illustre (la carte|la carte mentale)$/.test(s)) {
+    return { images: /toutes les idees|partout/.test(s) ? 'all' : 'branches' };
+  }
+  m = raw.match(/^(?:ajoute|mets|rajoute|trouve)(?:[- ]moi)?\s+(?:une |un )?(?:image|photo|illustration)\s+(?:à|a|sur|pour|dans)\s+(?:la branche |l'idée |l’idée |le nœud |le noeud )?(?:la |le |les |l'|l’)?(.+)$/i);
+  if (m) return { images: m[1] };
+  if (/^(ajoute|mets|rajoute)( moi)? (des |les )?(liens|sources)( wikipedia)?( partout| a| sur| dans| aux| pour)?( la carte( mentale)?| toutes les branches| chaque branche| les branches| toutes les idees)?$/.test(s)) return { links: 'all' };
+  m = raw.match(/^(?:ajoute|mets|rajoute)(?:[- ]moi)?\s+(?:le |un |une )?(?:lien|source|url)(?:\s+wikip[ée]dia)?(?:\s+(?:vers\s+)?https?:\/\/\S+)?\s+(?:à|a|sur|pour|dans)\s+(?:la branche |l'idée |l’idée |le nœud |le noeud )?(?:la |le |les |l'|l’)?(.+?)(?:\s+https?:\/\/\S+)?$/i);
+  if (m) return url ? { customLink: { target: m[1], url } } : { links: m[1] };
+  if (/^(enleve|retire|supprime|efface)( moi)? (toutes )?les (images|photos|illustrations)( de la carte( mentale)?)?$/.test(s)) return { removeImages: true };
+  if (/^(enleve|retire|supprime|efface)( moi)? (tous )?les (liens|sources)( de la carte( mentale)?)?$/.test(s)) return { removeLinks: true };
   if (/\b(arbre|arborescence)\b/.test(s) && /\b(en|mets|passe|affiche|forme|vue)\b/.test(s)) return { layout: 'tree' };
   if (/\b(organigramme|hierarchi\w*|de haut en bas|verticale?)\b/.test(s) && /\b(en|mets|passe|affiche|forme|vue)\b/.test(s)) return { layout: 'org' };
   if (/\b(en etoile|radiale?|en carte mentale|en carte|autour du centre)\b/.test(s) && /\b(en|mets|passe|affiche|remets|repasse)\b/.test(s)) return { layout: 'mindmap' };

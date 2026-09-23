@@ -58,6 +58,12 @@ Chaque carte a un bouton **—** qui la réduit dans une barre en bas (elle cont
 | « Déplie tout », « replie tout », « déplie la branche causes », « replie conséquences » | Ouvrir / fermer des branches |
 | « Ajoute une branche sur les femmes pendant la Révolution » | Jarvis enrichit la carte (via l'IA) |
 | « Ferme la carte mentale », « réaffiche la carte mentale » | Fermer / rappeler |
+| « Ajoute des images à la carte mentale », « ajoute une image à la branche Acteurs » | Illustre les idées (image de l'article Wikipédia, sinon recherche d'images) |
+| « Mets cette image sur la branche Symboles » | Place l'image que vous venez d'envoyer (📎, glisser-déposer, Ctrl+V) |
+| « Ajoute des liens », « ajoute un lien à Robespierre », « ajoute le lien https://… à Marianne » | Ajoute des liens (Wikipédia ou adresse précise) |
+| « Enlève les images », « enlève les liens » | Retire images ou liens |
+
+Dès la création, Jarvis illustre le sujet central et les branches principales, et ajoute des liens Wikipédia sur les notions importantes. **Clic droit** (ou Maj+clic) sur une idée : image automatique, image depuis votre ordinateur, lien Wikipédia, lien personnalisé, ou retrait. La pastille 🔗 ouvre le lien dans un nouvel onglet ; un clic sur une image l'affiche en grand.
 
 ### Mise en forme libre
 Jarvis a carte blanche pour présenter les informations comme vous le demandez :
