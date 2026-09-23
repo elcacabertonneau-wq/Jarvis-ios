@@ -1031,6 +1031,34 @@ body.ar-open .composer .attach, body.ar-open .composer .hint { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { .ar-spin { animation: none; } }
 
+/* ---------- Dessin dans l'air ---------- */
+.draw .draw-ink { cursor: crosshair; }
+.draw-swatch { display: block; width: 20px; height: 20px; border-radius: 50%; border: 2px solid hsla(0, 0%, 100%, .8); }
+.draw-go {
+  position: absolute; z-index: 3; left: 50%; transform: translateX(-50%); bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+  padding: var(--s3) var(--s5); border-radius: 999px; cursor: pointer; border: 0;
+  font: 600 var(--fs-18)/1 var(--font-hud); letter-spacing: .06em; color: var(--g-900); background: var(--accent);
+  box-shadow: 0 0 24px hsla(var(--accent-h, 193), 100%, 58%, .55), var(--e4);
+  transition: var(--state-transition);
+}
+.draw-go:disabled { opacity: .35; cursor: default; box-shadow: none; }
+.draw-go:not(:disabled):active { transform: translateX(-50%) scale(.96); }
+.draw .ar-caption { bottom: calc(150px + env(safe-area-inset-bottom, 0px)); }
+
+/* ---------- Mémoire ---------- */
+.mem-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s2); max-height: 360px; overflow-y: auto; }
+.mem-list li {
+  display: flex; align-items: center; gap: var(--s3); padding: var(--s2) var(--s2) var(--s2) var(--s4);
+  border-radius: var(--radius-sm); background: hsla(215, 45%, 14%, .45); border: 1px solid var(--glass-edge);
+  animation: rise var(--d-slow) var(--ease-smooth-out) backwards;
+}
+.mem-text { flex: 1; min-width: 0; color: var(--text); overflow-wrap: anywhere; }
+.mem-list small { color: var(--text-3); font-size: var(--fs-12); white-space: nowrap; }
+.mem-del { flex: none; width: 32px; height: 32px; }
+.mem-empty { color: var(--text-2); margin: 0; }
+.mem-add { display: flex; gap: var(--s2); margin-top: var(--s4); }
+.mem-add .primary { flex: none; }
+
 /* ---------- Accessibilité ---------- */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .001s !important; animation-iteration-count: 1 !important; animation-delay: 0s !important; transition-duration: .001s !important; }

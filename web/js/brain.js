@@ -2,6 +2,7 @@
 // Groq (clé gratuite, ultra-rapide) → Claude (clé payante, optionnelle) → Gemini (clé gratuite) → Pollinations (sans clé, dernier recours).
 import { settings } from './settings.js';
 import { fetchJSON } from './services.js';
+import * as facts from './facts.js';
 
 const HISTORY_KEY = 'jarvis.history.v1';
 const MAX_HISTORY = 16;
@@ -28,6 +29,8 @@ ${ctx.playing ? `En cours de lecture : ${ctx.playing}.` : ''}
 ${ctx.screen ? `Actuellement affiché à l'écran : ${ctx.screen}.` : ''}
 ${ctx.table ? `Tableau actuellement affiché (JSON) : ${ctx.table}` : ''}
 ${ctx.mindmap ? `Carte mentale actuellement affichée (JSON) : ${ctx.mindmap}` : ''}
+${facts.forPrompt()}
+${ctx.draw ? `${ctx.draw} : l'utilisateur dessine dans l'air avec son doigt devant la caméra.` : ''}
 ${ctx.ar ? `${ctx.ar} (vue en réalité augmentée ouverte en plein écran).` : ''}
 ${ctx.camera ? 'La caméra de l\'utilisateur est ouverte à l\'écran.' : ''}
 ${ctx.image ? `L'utilisateur a fourni une image récemment (${ctx.image}).` : ''}
@@ -68,6 +71,10 @@ Actions disponibles (0, 1 ou plusieurs) :
 - {"type":"theme","accent":"couleur ou #hex (default pour revenir au cyan)","background":"aurora|dark|minimal|vivid"} : changer les couleurs et l'ambiance de toute l'interface
 - {"type":"ar","topic":"ce qu'il faut modéliser en 3D","image":"last|screen","image_query":"…","plan_from_image":true} : RÉALITÉ AUGMENTÉE. Projette un hologramme 3D par-dessus la caméra, que l'utilisateur manipule avec ses doigts (pincer pour tourner, poing pour déplacer, deux mains pour zoomer). "topic" = objet, machine, molécule, bâtiment, monument, organe, plan de maison ou d'appartement, système… (Jarvis construit la maquette 3D). "image":"last" (image envoyée) ou "screen" (image affichée) projette cette image en panneau flottant ; ajoute "plan_from_image":true pour transformer un plan dessiné en maquette 3D. "image_query" projette des photos trouvées en carrousel. Utilise-le dès que l'utilisateur parle de 3D, d'hologramme, de réalité augmentée, d'AR ou de projeter quelque chose.
 - {"type":"ar_update","zoom":1.5,"turn":45,"view":"top|front|side|back","holo":true,"spin":true,"reset":true,"close":true} : modifier l'hologramme affiché (ne mets que les champs utiles)
+- {"type":"remember","fact":"phrase courte à la première personne, ex. « Je suis allergique aux noix »"} : retenir durablement une information sur l'utilisateur (prénom, allergies, goûts, ville, proches, dates importantes, objectifs…). Utilise-le quand il te demande de retenir quelque chose, ou quand il partage spontanément une information personnelle durable et utile ; confirme-le en quelques mots. Jamais pour des choses passagères ni pour des mots de passe ou codes secrets.
+- {"type":"forget","fact":"ce qu'il faut oublier"} : oublier un souvenir (ou "all" pour tout oublier)
+- {"type":"memory"} : afficher tout ce que tu as retenu sur l'utilisateur
+- {"type":"draw"} : ouvrir le mode « dessin dans l'air » (l'utilisateur trace avec son index devant la caméra, puis tu transformes le croquis en schéma propre)
 - {"type":"minimize","target":"all|musique|video|photo|recap|camera|meteo|minuteur|fiche|texte"} : réduire des fenêtres dans la barre du bas (elles continuent de fonctionner)
 - {"type":"restore","target":"all|…"} : rouvrir des fenêtres réduites
 
@@ -336,7 +343,10 @@ export const canSee = () => !!(settings.geminiKey || settings.groqKey || setting
 export async function see(userText, image, ctx = {}) {
   const order = ['gemini', 'groq', 'claude'];
   if (VISION[settings.provider]) order.unshift(...order.splice(order.indexOf(settings.provider), 1));
-  const source = image.source === 'camera' ? 'caméra en direct de l’utilisateur' : image.source === 'upload' ? 'image envoyée par l’utilisateur' : 'image affichée à l’écran';
+  const source = image.source === 'camera' ? 'caméra en direct de l’utilisateur'
+    : image.source === 'upload' ? 'image envoyée par l’utilisateur'
+    : image.source === 'drawing' ? 'croquis que l’utilisateur vient de tracer dans l’air avec son doigt (traits imprécis et tremblés à interpréter avec bienveillance ; les couleurs distinguent parfois des éléments)'
+    : 'image affichée à l’écran';
   const messages = [
     { role: 'system', content: systemPrompt(ctx) + VISION_RULES.replace('SOURCE', source) },
     ...memory.history,

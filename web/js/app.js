@@ -3,8 +3,10 @@ import { settings, saveSettings, defaults } from './settings.js';
 import { Voice, chime } from './voice.js';
 import { think, see, canSee, studyNotes, mindmapFor, arSceneFor, arSceneFromImage, memory, activeProviderLabel } from './brain.js';
 import * as ar from './ar.js';
+import * as draw from './draw.js';
+import * as facts from './facts.js';
 import * as camera from './camera.js';
-import { matchIntent, matchTableIntent, matchMindmapIntent, matchARIntent } from './intents.js';
+import { matchIntent, matchTableIntent, matchMindmapIntent, matchARIntent, matchMemoryIntent, matchDrawIntent } from './intents.js';
 import * as mindmap from './mindmap.js';
 import * as tables from './tables.js';
 import { extractTable, renderMarkdown } from './markdown.js';
@@ -50,6 +52,7 @@ async function say(text, t = turn) {
   ui.log('jarvis', text);
   ui.setLive(text, 'reply');
   ar.caption(text);
+  draw.caption(text);
   await voice.speak(text);
 }
 
@@ -82,6 +85,23 @@ async function handle(raw, { spoken = false } = {}) {
     return;
   }
 
+  // Mémoire personnelle : retenir, afficher, oublier (instantané, sans IA).
+  const memCmd = matchMemoryIntent(text);
+  if (memCmd) {
+    await say(memCmd.remember ? ACTIONS.remember({ fact: memCmd.remember })
+      : memCmd.show ? ACTIONS.memory()
+        : ACTIONS.forget({ fact: memCmd.forgetAll ? 'all' : memCmd.forget }), t);
+    return;
+  }
+
+  // Dessin dans l'air : ouverture et commandes du mode dessin.
+  const drawCmd = matchDrawIntent(text, { open: draw.isOpen() });
+  if (drawCmd) {
+    await say(await ACTIONS.draw(drawCmd), t);
+    if (spoken && t === turn && voice.wakeEnabled) voice.followUp(6000);
+    return;
+  }
+
   // Réalité augmentée : hologrammes 3D manipulables avec les doigts.
   const arCmd = matchARIntent(text, { open: ar.isOpen(), canRestore: ar.canRestore() });
   if (arCmd) {
@@ -107,6 +127,14 @@ async function handle(raw, { spoken = false } = {}) {
   }
 
   const local = matchIntent(text);
+  // Pendant le dessin, une demande qui n'est pas une commande simple porte sur le croquis (« transforme-le en schéma »).
+  if (draw.isOpen() && draw.hasStrokes() && (!local || local.actions.some((a) => a.type === 'look'))) {
+    setBusy(true);
+    const speech = await ACTIONS.draw_transform({ prompt: text });
+    setBusy(false);
+    await say(speech, t);
+    return;
+  }
   try {
     setBusy(true);
     if (local) {
@@ -114,7 +142,7 @@ async function handle(raw, { spoken = false } = {}) {
       setBusy(false);
       await say(local.speech || speech, t);
     } else {
-      const reply = await think(text, { playing: player.nowPlaying(), screen: ui.describeStage(), table: tables.describe(), mindmap: mindmap.describe(), ar: ar.describe(), ...visionContext() });
+      const reply = await think(text, { playing: player.nowPlaying(), screen: ui.describeStage(), table: tables.describe(), mindmap: mindmap.describe(), ar: ar.describe(), draw: draw.describe(), ...visionContext() });
       if (t !== turn) return;
       // Un tableau Markdown dans la réponse devient un vrai tableau récapitulatif.
       if (reply.display && !reply.actions.some((a) => a?.type === 'table')) {
@@ -476,6 +504,77 @@ const ACTIONS = {
     return ui.restoreKind(t.includes('cam') ? 'camera' : kindsFor(t)) ? '' : `Je ne trouve pas d'élément « ${target} » réduit.`;
   },
 
+  // ---------- Mémoire personnelle ----------
+  remember({ fact }) {
+    const f = facts.add(fact);
+    if (!f) return "Je n'ai pas compris ce que je dois retenir.";
+    refreshMemoryCard();
+    return `C'est noté, je m'en souviendrai : « ${f.text} ».`;
+  },
+  forget({ fact = '' }) {
+    if (/^(all|tout)$/i.test(String(fact).trim())) {
+      const old = facts.clear();
+      if (!old.length) return "Je n'avais rien retenu sur vous.";
+      showMemory(old);
+      return `J'ai tout oublié : ${old.length} souvenir${old.length > 1 ? 's' : ''}. Vous pouvez encore annuler.`;
+    }
+    const gone = facts.forget(fact);
+    refreshMemoryCard();
+    return gone.length ? `C'est oublié : ${gone.map((f) => f.text).join(' ; ')}.` : "Je n'avais rien retenu à ce sujet.";
+  },
+  memory() {
+    showMemory();
+    const n = facts.count();
+    return n ? `Voici ce que j'ai retenu sur vous : ${n} souvenir${n > 1 ? 's' : ''}.` : 'Je n’ai encore rien retenu sur vous. Dites par exemple « souviens-toi que je suis végétarien ».';
+  },
+
+  // ---------- Dessin dans l'air ----------
+  async draw(a = {}) {
+    if (a.close) { draw.close(); return ''; }
+    if (!draw.isOpen()) {
+      if (ar.isOpen()) ar.close();
+      if (camera.isOpen()) camera.closeCamera(); // la caméra passe dans la vue de dessin
+      await draw.open({ onMic: toggleListen, onTransform: () => handle('transforme mon dessin en schéma propre') });
+      return "Levez l'index pour dessiner dans l'air, ouvrez la main pour lever le crayon. Dites-moi ensuite quoi en faire.";
+    }
+    if (a.clear) draw.clear();
+    if (a.undo && !draw.undo()) return "Il n'y a rien à annuler.";
+    if ('color' in a && !draw.setColor(a.color || undefined)) return `Je n'ai pas cette couleur. Essayez cyan, or, rose, vert, blanc, violet, rouge, bleu, jaune ou orange.`;
+    if (a.switchCamera) await draw.switchCamera();
+    return '';
+  },
+  async draw_transform({ prompt = '' } = {}) {
+    if (!draw.hasStrokes()) return "Dessinez d'abord quelque chose : levez l'index devant la caméra.";
+    if (!canSee()) { showOnboarding(); return "Pour comprendre votre dessin, j'ai besoin d'une IA capable de voir : une clé gratuite Groq ou Gemini."; }
+    const shot = draw.snapshot();
+    const neon = draw.preview();
+    const request = prompt || 'Transforme mon dessin en schéma propre.';
+    draw.setBusy(true);
+    try {
+      const reply = await see(`${request}
+
+[Consignes pour le croquis] Dis d'abord en une phrase ce que tu reconnais. Puis :
+- Par défaut (« transforme-le », « nettoie-le », « rends-le propre », « fais-en un schéma ») : redessine-le avec l'action "page" contenant un SVG net et fidèle (mêmes éléments, mêmes positions relatives, formes régulières : droites, cercles, rectangles, flèches, textes lisibles et bien orthographiés), fond sombre, traits cyan, or ou violet, avec un titre et des légendes utiles.
+- Écriture : retranscris le texte dans "display". Formule ou calcul : écris-le proprement dans "display" et résous-le si c'est demandé ou évident.
+- Schéma (organigramme, circuit, graphe, carte, plan) : identifie et nomme les éléments dans le SVG.
+- Objet, animal, personnage : dis ce que c'est ; « en 3D » → action "ar" avec "topic" ; « en vrai », « illustre-le » → action "generate_image" avec une description détaillée en anglais.`,
+      { dataUrl: shot, source: 'drawing', label: 'dessin dans l’air' },
+      { playing: player.nowPlaying(), screen: ui.describeStage(), table: tables.describe() });
+      draw.close();
+      const body = el('div', { class: 'vision' },
+        el('img', { class: 'vision-shot', src: neon, alt: 'Votre dessin', onclick: () => ui.lightbox([{ full: neon, thumb: neon, title: 'Votre dessin' }]) }),
+        reply.display ? el('div', { class: 'md', html: renderMarkdown(reply.display) }) : el('p', { class: 'md' }, reply.speech),
+        el('div', { class: 'actions-row' }, chip('✍️ Redessiner', () => ACTIONS.draw({ open: true }).then((sp) => say(sp)))));
+      ui.card(reply.title || 'Votre dessin', body, { icon: '✍️', kind: 'text' });
+      const speech = await runActions(reply.actions, request);
+      return reply.speech || speech || 'Voici votre schéma.';
+    } catch (e) {
+      console.warn(e);
+      draw.setBusy(false);
+      return "Je n'ai pas réussi à analyser votre dessin. Vérifiez qu'une clé Groq ou Gemini est configurée.";
+    }
+  },
+
   // ---------- Réalité augmentée ----------
   // Accepte les commandes locales (topic, image, imageQuery, planFromImage, zoom…) et l'action de l'IA (même champs, en snake_case).
   async ar(a = {}) {
@@ -486,6 +585,7 @@ const ACTIONS = {
     const wantsContent = topic || image || imageQuery || a.src || a.items || a.parts || a.plan || a.restore || a.open;
     if (!wantsContent) return arControl(a);
     if (!ar.isOpen()) {
+      if (draw.isOpen()) draw.close();
       if (camera.isOpen()) camera.closeCamera(); // la caméra passe dans la vue AR
       try { await ar.open({ onMic: toggleListen }); } catch { return "Je n'arrive pas à charger le moteur 3D. Vérifiez votre connexion internet."; }
     }
@@ -595,6 +695,41 @@ const ACTIONS = {
   },
 };
 
+// ---------------- Carte « Mémoire » ----------------
+let memoryCard = null;
+function memoryBody(undoItems) {
+  const items = facts.list();
+  const input = el('input', { class: 'field', type: 'text', placeholder: 'Ajouter : « Je suis végétarien », « Ma sœur s’appelle Julie »…', maxlength: '300', 'aria-label': 'Nouveau souvenir' });
+  const addIt = () => { if (input.value.trim()) { facts.add(input.value); input.value = ''; } };
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addIt(); } });
+  return el('div', { class: 'memory' },
+    items.length
+      ? el('ul', { class: 'mem-list' }, items.slice().reverse().map((f) => el('li', {},
+        el('span', { class: 'mem-text' }, f.text),
+        el('small', {}, new Date(f.at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })),
+        el('button', { type: 'button', class: 'icon-btn mem-del', title: 'Oublier', 'aria-label': `Oublier : ${f.text}`, onclick: () => facts.remove(f.id), html: '<svg viewBox="0 0 24 24"><path d="M6.4 5 5 6.4 10.6 12 5 17.6 6.4 19l5.6-5.6 5.6 5.6 1.4-1.4-5.6-5.6L19 6.4 17.6 5 12 10.6z"/></svg>' }))))
+      : el('p', { class: 'mem-empty' }, 'Rien pour l’instant. Dites « souviens-toi que… » ou ajoutez un souvenir ci-dessous.'),
+    el('div', { class: 'mem-add' }, input, el('button', { type: 'button', class: 'primary', onclick: addIt }, 'Retenir')),
+    el('div', { class: 'actions-row' },
+      undoItems?.length ? chip('↩️ Annuler l’oubli', () => facts.restore(undoItems)) : null,
+      items.length ? chip('🧹 Tout oublier', () => { const old = facts.clear(); showMemory(old); }) : null),
+    el('p', { class: 'sources' }, 'Ces informations restent sur cet appareil et sont transmises à l’IA pour personnaliser mes réponses.'));
+}
+function showMemory(undoItems) {
+  if (memoryCard?.isConnected) {
+    memoryCard.querySelector('.memory')?.replaceWith(memoryBody(undoItems));
+    ui.restoreCard(memoryCard);
+    return memoryCard;
+  }
+  memoryCard = ui.card('Ce que je sais de vous', memoryBody(undoItems), { icon: '🧠', kind: 'memory', keep: true });
+  return memoryCard;
+}
+function refreshMemoryCard() {
+  const old = memoryCard?.isConnected && memoryCard.querySelector('.memory');
+  if (old) old.replaceWith(memoryBody());
+}
+facts.onChange(() => refreshMemoryCard());
+
 // Réglages de l'hologramme affiché (commandes locales et action « ar_update » de l'IA).
 function arControl(a = {}) {
   if (!ar.isOpen()) return a.close ? '' : "Aucun hologramme n'est affiché. Dites par exemple « projette un atome en 3D ».";
@@ -615,6 +750,7 @@ function kindsFor(word = '') {
   const w = String(word).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   if (/carte mentale|mind ?map|mindmap|carte des idees|heuristique/.test(w)) return 'mindmap';
   if (/camera|webcam/.test(w)) return 'camera';
+  if (/memoire|souvenir/.test(w)) return 'memory';
   if (/page|infographie|affiche|frise|presentation|dashboard|tableau de bord/.test(w)) return 'page';
   if (/photo|image|illustration|dessin|creation/.test(w)) return 'photo|images';
   if (/images|galerie/.test(w)) return 'images|photo';
@@ -819,6 +955,8 @@ function bindUI() {
   // Images : bouton 📎, glisser-déposer sur la fenêtre, ou coller (Ctrl+V).
   $('attach').onclick = () => $('file').click();
   $('file').onchange = (e) => { receiveImage(e.target.files?.[0]); e.target.value = ''; };
+  $('btn-draw').onclick = () => (draw.isOpen() ? draw.close() : handle('mode dessin'));
+  $('show-memory').onclick = () => { $('settings').close(); showMemory(); };
   $('btn-camera').onclick = () => (camera.isOpen() ? camera.closeCamera() : handle('affiche ma caméra'));
   addEventListener('dragover', (e) => { if ([...(e.dataTransfer?.items || [])].some((i) => i.kind === 'file')) { e.preventDefault(); document.body.classList.add('dropping'); } });
   addEventListener('dragleave', (e) => { if (!e.relatedTarget) document.body.classList.remove('dropping'); });

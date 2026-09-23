@@ -68,6 +68,32 @@ Au toucher : un doigt pour tourner, deux doigts pour zoomer et déplacer ; à la
 
 Sur téléphone, la caméra arrière est utilisée par défaut (posez le téléphone ou tenez-le d'une main et manipulez de l'autre) ; sur ordinateur, la webcam. Sans caméra, l'hologramme s'affiche sur fond sombre. Le moteur 3D (Three.js) et le suivi des mains ne sont téléchargés qu'à la première ouverture.
 
+### Dessin dans l'air
+« Mode dessin », « je veux dessiner » ou le bouton ✏️ en haut : la caméra s'ouvre et vous **tracez avec l'index** devant elle, en traits lumineux.
+- ☝️ **Index levé seul** : le bout du doigt dessine.
+- ✋ **Main ouverte** (ou ✌️ deux doigts) : le crayon se lève, pour passer à un autre trait.
+- Vous pouvez aussi dessiner au doigt sur l'écran ou à la souris.
+
+À la voix : « en rouge », « change de couleur », « annule », « efface », « ferme le dessin ». Puis demandez ce que vous voulez en faire, et Jarvis regarde votre croquis (IA capable de voir, clé Groq ou Gemini) :
+| Dites… | Effet |
+|---|---|
+| « Transforme-le en schéma » (ou bouton ✨) | Redessiné proprement : formes régulières, textes lisibles, légendes |
+| « Qu'est-ce que j'ai dessiné ? » | Jarvis reconnaît le dessin |
+| « Résous cette équation », « lis ce que j'ai écrit » | Écriture et formules retranscrites (et résolues) |
+| « Projette-le en 3D », « fais-en une vraie image » | Hologramme en réalité augmentée, ou illustration générée |
+
+### Mémoire personnelle
+Jarvis retient ce que vous lui confiez et s'en sert ensuite dans toutes ses réponses (recettes sans noix si vous êtes allergique, votre ville pour la météo, le prénom de vos proches…).
+
+| Dites… | Effet |
+|---|---|
+| « Souviens-toi que je suis allergique aux noix », « retiens que ma fille s'appelle Emma », « n'oublie pas mon anniversaire le 12 mai » | Retenu (instantané) |
+| « Qu'est-ce que tu sais sur moi ? » | Carte 🧠 : vos souvenirs, avec ✕ pour en oublier un et un champ pour en ajouter |
+| « Oublie mon allergie » | Oublie le souvenir correspondant |
+| « Oublie tout ce que tu sais sur moi » | Efface tout (avec un bouton pour annuler) |
+
+Jarvis retient aussi de lui-même une information personnelle durable que vous mentionnez (« je m'appelle Léa », « je suis végétarien »), et vous le dit. Les souvenirs restent **uniquement sur cet appareil** (**⚙️ Réglages → Mémoire → Ce que Jarvis sait de vous**) ; ne lui confiez pas de mots de passe.
+
 ### Réduire les fenêtres
 Chaque carte a un bouton **—** qui la réduit dans une barre en bas (elle continue de fonctionner : vidéo, caméra, minuteur). Le lecteur de musique se réduit aussi en une pastille 🎵. Un clic sur une pastille la rouvre.
 
@@ -173,6 +199,9 @@ web/
 ├── js/brain.js           IA (Groq / Gemini / Claude / Pollinations), vision, mémoire de conversation
 ├── js/camera.js          Caméra, capture, images envoyées
 ├── js/ar.js              Réalité augmentée : hologrammes 3D, suivi des mains, gestes
+├── js/draw.js            Dessin dans l'air avec l'index, export du croquis pour l'IA
+├── js/hands.js           Suivi des mains (MediaPipe), partagé par l'AR et le dessin
+├── js/facts.js           Mémoire personnelle (souvenirs sur l'utilisateur)
 ├── js/services.js        Images, Wikipédia, YouTube, radio, météo
 ├── js/player.js          Lecteur radio et YouTube
 ├── js/ui.js              Cartes, disposition libre, affichage en grand, galerie, visionneuse

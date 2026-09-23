@@ -2,18 +2,15 @@
 // manipulables avec les doigts (suivi des mains MediaPipe), au toucher ou à la souris.
 // Three.js et le modèle de suivi des mains ne sont chargés qu'à la première ouverture.
 import * as ui from './ui.js';
+import { loadHands, BONES, detect } from './hands.js';
 
 const { el } = ui;
-const MP_VERSION = '0.10.14';
-const MP_BASE = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}`;
-const HAND_MODEL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
 const FIT = 1.8; // taille de l'hologramme (unités de la scène)
 const CAM_Z = 4.2;
 const HOLO = 0x35d6ff;
 
 let T = null; // module three
 let addons = null; // { GLTFLoader, RoomEnvironment }
-let handsPromise = null;
 let S = null; // état de la vue AR ouverte
 let last = null; // dernier contenu affiché : { kind, data, title }
 
@@ -33,19 +30,6 @@ async function loadThree() {
   addons = { GLTFLoader: gltf.GLTFLoader, RoomEnvironment: room.RoomEnvironment };
 }
 
-function loadHands() {
-  handsPromise ||= (async () => {
-    const { FilesetResolver, HandLandmarker } = await import(`${MP_BASE}/vision_bundle.mjs`);
-    const fileset = await FilesetResolver.forVisionTasks(`${MP_BASE}/wasm`);
-    const opts = (delegate) => ({
-      baseOptions: { modelAssetPath: HAND_MODEL, delegate },
-      runningMode: 'VIDEO', numHands: 2,
-      minHandDetectionConfidence: 0.6, minHandPresenceConfidence: 0.5, minTrackingConfidence: 0.5,
-    });
-    try { return await HandLandmarker.createFromOptions(fileset, opts('GPU')); } catch { return HandLandmarker.createFromOptions(fileset, opts('CPU')); }
-  })().catch((e) => { handsPromise = null; throw e; });
-  return handsPromise;
-}
 
 // ---------- Ouverture / fermeture ----------
 const isPhone = () => matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 820;
@@ -694,25 +678,9 @@ function moveBy(dx, dy) {
 }
 
 // ---------- Suivi des mains ----------
-const BONES = [[0, 1], [1, 2], [2, 3], [3, 4], [0, 5], [5, 6], [6, 7], [7, 8], [5, 9], [9, 10], [10, 11], [11, 12], [9, 13], [13, 14], [14, 15], [15, 16], [13, 17], [17, 18], [18, 19], [19, 20], [0, 17]];
 
-// Convertit un point normalisé de la vidéo en pixels écran (vidéo en « cover », miroir en caméra avant).
-function toScreen(p) {
+function analyzeHand(pts, key) {
   const st = S;
-  const W = st.root.clientWidth;
-  const H = st.root.clientHeight;
-  const vw = st.video.videoWidth || W;
-  const vh = st.video.videoHeight || H;
-  const k = Math.max(W / vw, H / vh);
-  let x = p.x * vw * k + (W - vw * k) / 2;
-  const y = p.y * vh * k + (H - vh * k) / 2;
-  if (st.facing === 'user') x = W - x;
-  return { x, y };
-}
-
-function analyzeHand(lm, key) {
-  const st = S;
-  const pts = lm.map(toScreen);
   const d = (a, b) => Math.hypot(pts[a].x - pts[b].x, pts[a].y - pts[b].y);
   const size = Math.max(d(0, 9), 1);
   const curled = [[8, 6], [12, 10], [16, 14], [20, 18]].filter(([tip, pip]) => d(tip, 0) < d(pip, 0) * 1.05).length;
@@ -806,9 +774,9 @@ function detectHands(now) {
   if (!st.handsOn || !st.hands || !st.stream || st.video.readyState < 2) return;
   if (st.video.currentTime === st.lastVideoTime) return;
   st.lastVideoTime = st.video.currentTime;
-  let res;
-  try { res = st.hands.detectForVideo(st.video, now); } catch { return; }
-  const hands = (res?.landmarks || []).map((lm, i) => analyzeHand(lm, res.handednesses?.[i]?.[0]?.categoryName || res.handedness?.[i]?.[0]?.categoryName || String(i)));
+  const found = detect(st.hands, st.video, now, { W: st.root.clientWidth, H: st.root.clientHeight, mirror: st.facing === 'user' });
+  if (!found) return;
+  const hands = found.map((h) => analyzeHand(h.pts, h.key));
   for (const [k, v] of Object.entries(st.handState)) if (now - v.seen > 400) delete st.handState[k];
   drawHands(hands);
   applyGestures(hands);
