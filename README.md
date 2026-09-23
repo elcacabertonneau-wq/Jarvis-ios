@@ -17,6 +17,24 @@ Jarvis est une application web installable (PWA). Elle fonctionne sur **iPhone, 
 | « Pause », « suivant », « plus fort », « stop » | Contrôle de la musique et des vidéos |
 | Toute autre question | Conversation avec l'IA, réponse vocale et affichage en Markdown (listes, tableaux, code) |
 
+### Tableaux récapitulatifs
+Demandez un récap, un comparatif, un classement ou un planning (« fais-moi un récap des planètes géantes ») : Jarvis crée un tableau propre et l'affiche **en grand**. Vous pouvez ensuite changer sa disposition à la voix (instantané, sans IA) :
+
+| Dites… | Effet |
+|---|---|
+| « Mets-le en cartes » / « en liste » / « en tableau » / « fais une comparaison » | Change la disposition (4 vues) |
+| « Inverse les lignes et les colonnes » | Vue côte à côte |
+| « Trie par prix », « classe selon la population décroissante », « ordre inverse » | Tri (on peut aussi cliquer sur un en-tête de colonne) |
+| « Mets en évidence Saturne », « surligne la colonne prix » | Surligne une ligne ou une colonne |
+| « Cache la colonne notes », « affiche toutes les colonnes » | Masque / réaffiche des colonnes |
+| « Réduis », « agrandis », Échap | Passe de la vue en grand à la carte, et inversement |
+| « Ferme le tableau », « réaffiche le tableau » | Ferme, ou rappelle le dernier tableau |
+
+Pour changer le contenu (« ajoute une colonne prix »), Jarvis passe par l'IA, qui reçoit le tableau affiché. Toute carte (images, vidéo, fiche…) peut aussi s'afficher en grand avec le bouton ⤢ ou en disant « agrandis ».
+
+### Retour automatique à l'accueil
+Après 2 minutes sans activité, les recherches s'effacent en douceur et l'écran d'accueil revient. Les minuteurs en cours et les vidéos restent affichés. Le délai se règle dans **⚙️ Réglages → Écran** (1, 2 ou 5 minutes, ou jamais). « Reviens à l'accueil » le fait tout de suite.
+
 ### La voix
 - **Appui sur le micro** (ou sur le cercle, ou la barre Espace sur ordinateur) : Jarvis écoute une commande.
 - **Détection de « Jarvis » activée par défaut** : Jarvis écoute en continu et réagit dès qu'il entend son nom, soit en une phrase (« Jarvis, mets du jazz »), soit en deux temps (« Jarvis » → bip → « quelle heure est-il ? »). Les autres conversations sont ignorées. Après une réponse, il écoute encore quelques secondes pour la suite, sans qu'il faille redire « Jarvis ». Sur iPhone, il faut toucher l'écran une fois à l'ouverture (règle de Safari pour le micro). L'icône casque coupe ou réactive cette écoute.
@@ -67,6 +85,7 @@ web/
 ├── js/app.js             Orchestrateur : commandes → actions → affichage et voix
 ├── js/voice.js           Reconnaissance vocale, mot d'activation, synthèse vocale
 ├── js/intents.js         Commandes reconnues localement (sans IA)
+├── js/tables.js          Tableaux récapitulatifs : 4 dispositions, tri, mise en évidence
 ├── js/brain.js           IA (Groq / Gemini / Claude / Pollinations), mémoire de conversation
 ├── js/services.js        Images, Wikipédia, YouTube, radio, météo
 ├── js/player.js          Lecteur radio et YouTube

@@ -177,6 +177,18 @@
       </fieldset>
 
       <fieldset>
+        <legend>Écran</legend>
+        <label>Retour automatique à l'accueil
+          <select name="idleReturn">
+            <option value="60">Après 1 minute sans activité</option>
+            <option value="120">Après 2 minutes sans activité</option>
+            <option value="300">Après 5 minutes sans activité</option>
+            <option value="0">Jamais</option>
+          </select>
+        </label>
+      </fieldset>
+
+      <fieldset>
         <legend>Mémoire</legend>
         <button type="button" class="ghost danger" id="forget">Effacer l'historique de conversation</button>
       </fieldset>

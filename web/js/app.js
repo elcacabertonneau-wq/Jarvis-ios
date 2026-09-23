@@ -2,7 +2,9 @@
 import { settings, saveSettings, defaults } from './settings.js';
 import { Voice, chime } from './voice.js';
 import { think, studyNotes, memory, activeProviderLabel } from './brain.js';
-import { matchIntent } from './intents.js';
+import { matchIntent, matchTableIntent } from './intents.js';
+import * as tables from './tables.js';
+import { extractTable } from './markdown.js';
 import * as svc from './services.js';
 import * as player from './player.js';
 import * as ui from './ui.js';
@@ -55,6 +57,20 @@ async function handle(raw, { spoken = false } = {}) {
   voice.stopSpeaking();
   ui.log('user', text);
   ui.setLive('');
+  bumpActivity();
+
+  // Disposition des tableaux et affichage en grand : instantané, sans IA.
+  const tableCmd = matchTableIntent(text, { hasTable: tables.hasTable(), canRestore: tables.canRestore() });
+  if (tableCmd) {
+    await say(tables.update(tableCmd), t);
+    return;
+  }
+  const sizeCmd = !tables.hasTable() && ui.hasCards() ? matchTableIntent(text, { hasTable: true }) : null;
+  if (sizeCmd && Object.keys(sizeCmd).length === 1 && 'expand' in sizeCmd) {
+    if (sizeCmd.expand) ui.expandCard(ui.expandedCard() || ui.firstCard());
+    else ui.collapseCard();
+    return;
+  }
 
   const local = matchIntent(text);
   try {
@@ -64,8 +80,16 @@ async function handle(raw, { spoken = false } = {}) {
       setBusy(false);
       await say(local.speech || speech, t);
     } else {
-      const reply = await think(text, { playing: player.nowPlaying(), screen: ui.describeStage() });
+      const reply = await think(text, { playing: player.nowPlaying(), screen: ui.describeStage(), table: tables.describe() });
       if (t !== turn) return;
+      // Un tableau Markdown dans la réponse devient un vrai tableau récapitulatif.
+      if (reply.display && !reply.actions.some((a) => a?.type === 'table')) {
+        const md = extractTable(reply.display);
+        if (md && md.rows.length >= 2) {
+          reply.actions.unshift({ type: 'table', title: reply.title || 'Récapitulatif', columns: md.columns, rows: md.rows });
+          reply.display = md.rest.replace(/^#+\s.*$/gm, '').trim().length > 60 ? md.rest : '';
+        }
+      }
       if (reply.display) ui.textCard(reply.title || 'Jarvis', reply.display);
       const speech = await runActions(reply.actions, text);
       setBusy(false);
@@ -150,7 +174,9 @@ const ACTIONS = {
 
   async video({ query }) {
     const body = el('div', {}, ui.loading());
-    ui.card(`Vidéo · ${query}`, body, { icon: '🎬' });
+    // Une vidéo en cours ne disparaît pas toute seule pendant 15 minutes.
+    const vc = ui.card(`Vidéo · ${query}`, body, { icon: '🎬', keep: true });
+    setTimeout(() => { delete vc.dataset.keep; }, 15 * 60 * 1000);
     let vids = [];
     try { vids = await svc.searchVideos(query); } catch { /* aucune source */ }
     body.innerHTML = '';
@@ -247,13 +273,14 @@ const ACTIONS = {
     const fmt = (s) => [Math.floor(s / 3600), Math.floor(s / 60) % 60, s % 60].map((n) => String(n).padStart(2, '0')).join(':').replace(/^00:/, '');
     disp.textContent = fmt(left);
     const end = Date.now() + left * 1000;
-    const c = ui.card(`Minuteur · ${label || fmt(left)}`, disp, { icon: '⏱️' });
+    const c = ui.card(`Minuteur · ${label || fmt(left)}`, disp, { icon: '⏱️', keep: true });
     const iv = setInterval(() => {
       if (!c.isConnected) return clearInterval(iv);
       left = Math.max(0, Math.round((end - Date.now()) / 1000));
       disp.textContent = fmt(left);
       if (!left) {
         clearInterval(iv);
+        delete c.dataset.keep; // une fois terminé, il peut disparaître avec le reste
         chime(false); setTimeout(() => chime(false), 300); setTimeout(() => chime(false), 600);
         say(`Le minuteur ${label || ''} est terminé.`, turn);
         if ('Notification' in window && Notification.permission === 'granted') new Notification('Jarvis', { body: 'Minuteur terminé' });
@@ -283,6 +310,25 @@ const ACTIONS = {
   },
 
   async clear() { ui.clearStage(); return ''; },
+
+  async table(a) {
+    const data = tables.show(a, { expand: true });
+    return data ? '' : "Je n'ai pas pu construire ce tableau.";
+  },
+
+  async table_update(a) {
+    return tables.update({
+      layout: a.layout,
+      sort: a.sort ? { column: a.sort.column, order: a.sort.order } : undefined,
+      highlight: a.highlight,
+      hide: a.hide,
+      showAll: a.show_all,
+      transpose: a.transpose,
+      expand: a.expand,
+      close: a.close,
+      restore: a.restore,
+    });
+  },
 };
 
 async function playRadio(q) {
@@ -316,11 +362,11 @@ function showOnboarding() {
       const k = input.value.trim();
       if (!k) return;
       saveSettings({ groqKey: k, provider: 'auto' });
-      c.remove();
+      ui.removeCard(c, true);
       refreshStatus();
       say('Merci. Mon cerveau est opérationnel.');
     } }, 'Activer')));
-  const c = ui.card('Activer mon intelligence', body, { icon: '🧠' });
+  const c = ui.card('Activer mon intelligence', body, { icon: '🧠', keep: true });
   c.id = 'onboard';
 }
 
@@ -390,11 +436,13 @@ function bindUI() {
   $('btn-settings').onclick = openSettings;
 
   document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && ui.collapseCard()) return; // réduit l'affichage en grand, même depuis la saisie
     if (e.target.matches('input, textarea, select') || e.repeat) return;
     if (e.code === 'Space') { e.preventDefault(); toggleListen(); }
-    if (e.key === 'Escape') { voice.stopSpeaking(); }
+    if (e.key === 'Escape') voice.stopSpeaking();
   });
   document.addEventListener('pointerdown', firstGesture, { capture: true });
+  ['pointerdown', 'keydown', 'wheel', 'touchmove'].forEach((ev) => document.addEventListener(ev, bumpActivity, { capture: true, passive: true }));
   document.addEventListener('visibilitychange', () => { if (!document.hidden) voice.ensureListening(); });
   window.addEventListener('online', refreshStatus);
   window.addEventListener('offline', refreshStatus);
@@ -448,22 +496,38 @@ function openSettings() {
   dlg.showModal();
 }
 
-// Horloge de l'écran d'accueil (s'arrête dès que l'accueil disparaît).
+// Horloge de l'écran d'accueil (mise à jour seulement quand il est visible).
 function startClock() {
   const tick = () => {
     const clock = $('welcome-clock');
-    if (!clock) return clearInterval(iv);
+    if ($('stage-empty').hidden) return;
     const now = new Date();
     clock.textContent = now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
     $('welcome-date').textContent = now.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
   };
-  const iv = setInterval(tick, 1000);
+  setInterval(tick, 1000);
   tick();
+}
+
+// ---------------- Retour automatique à l'accueil ----------------
+// Après un moment sans activité, les recherches s'effacent et l'accueil revient.
+let lastActivity = Date.now();
+function bumpActivity() { lastActivity = Date.now(); }
+function startIdleWatch() {
+  setInterval(() => {
+    const delay = (+settings.idleReturn || 0) * 1000;
+    if (!delay || busy || voice.speaking || voice.capturing) return;
+    if (!ui.hasCards() || Date.now() - lastActivity < delay) return;
+    if (![...document.querySelectorAll('#stage .card:not(.leaving)')].some((c) => !c.dataset.keep)) return;
+    ui.clearStage({ auto: true });
+    ui.setLive('');
+  }, 5000);
 }
 
 // ---------------- Démarrage ----------------
 function init() {
   startClock();
+  startIdleWatch();
   player.initPlayer();
   bindUI();
   updateMuteButton();

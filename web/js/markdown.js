@@ -1,7 +1,7 @@
 // Mini rendu Markdown sûr (le HTML est échappé avant toute transformation).
 const esc = (s) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-function inline(s) {
+export function inline(s) {
   const codes = [];
   s = s.replace(/`([^`]+)`/g, (_, c) => `\u0000${codes.push(c) - 1}\u0000`);
   s = esc(s)
@@ -80,4 +80,20 @@ export function stripMarkdown(s = '') {
     .replace(/[*_`#>|~]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+// Extrait le premier tableau Markdown d'un texte : { columns, rows, rest } ou null.
+export function extractTable(src = '') {
+  const lines = String(src).replace(/\r\n?/g, '\n').split('\n');
+  const isRow = (l) => /^\s*\|.*\|\s*$/.test(l);
+  for (let i = 0; i + 1 < lines.length; i++) {
+    if (!isRow(lines[i]) || !/^\s*\|[\s:|-]+\|\s*$/.test(lines[i + 1])) continue;
+    const cells = (l) => l.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
+    let j = i + 2;
+    const rows = [];
+    while (j < lines.length && isRow(lines[j])) rows.push(cells(lines[j++]));
+    const rest = [...lines.slice(0, i), ...lines.slice(j)].join('\n').trim();
+    return { columns: cells(lines[i]), rows, rest };
+  }
+  return null;
 }

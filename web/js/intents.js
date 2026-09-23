@@ -13,7 +13,7 @@ const RULES = [
     () => ({ actions: [{ type: 'media', command: 'next' }], speech: '' })],
   [/^(monte|augmente|plus fort)( le (son|volume))?( un peu)?$/i, () => ({ actions: [{ type: 'media', command: 'volume_up' }], speech: '' })],
   [/^(baisse|diminue|moins fort)( le (son|volume))?( un peu)?$/i, () => ({ actions: [{ type: 'media', command: 'volume_down' }], speech: '' })],
-  [/^(efface|nettoie|vide) (l'|l’)?(é|e)cran$/i, () => ({ actions: [{ type: 'clear' }], speech: 'Écran effacé.' })],
+  [/^(efface|nettoie|vide) (l'|l’)?(é|e)cran$|^(reviens|retourne|retour) (à|a) l'accueil$|^(accueil|écran d'accueil)$/i, () => ({ actions: [{ type: 'clear' }], speech: '' })],
 
   // Heure et date
   [/^(quelle heure (est[- ]il|il est)|il est quelle heure|l'heure|donne[- ]moi l'heure)$/i, () => {
@@ -45,7 +45,7 @@ const RULES = [
   [/^(?:je (?:veux|voudrais|souhaite|aimerais) (?:[ée]couter|entendre)|fais[- ]moi [ée]couter|on [ée]coute) (.+)$/i,
     (m) => ({ actions: [{ type: 'music', query: obj(m[1]) }], speech: '' })],
   [/^(?:mets?|joue|passe|lance)(?:[- ]moi)? (.+)$/i, (m) => ({ actions: [{ type: 'music', query: obj(m[1]) }], speech: '' }),
-    (s) => !/(vid[ée]o|image|photo|minuteur|timer|alarme|rappel)/i.test(s)],
+    (s) => !/(vid[ée]o|image|photo|minuteur|timer|alarme|rappel|tableau|cartes?|liste|colonnes?|lignes?|en grand|en petit)/i.test(s)],
 
   // Étude
   [/^(?:[ée]tudie|explique(?:[- ]moi)?|apprends[- ]moi|fais[- ]moi (?:un cours|une fiche|un r[ée]sum[ée]) (?:sur|de)|renseigne[- ]toi sur|r[ée]sume[- ]moi|parle[- ]moi de|je veux (?:apprendre|r[ée]viser|[ée]tudier)|cours sur|fiche sur|recherche sur)\s+(.+)$/i,
@@ -81,5 +81,58 @@ export function matchIntent(input) {
       return r;
     }
   }
+  return null;
+}
+
+// ---------- Commandes de disposition des tableaux ----------
+// Renvoie une modification à appliquer au tableau affiché, ou null.
+const fold = (s) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[’]/g, "'").replace(/[^a-z0-9' ]+/g, ' ').replace(/\s+/g, ' ').trim();
+
+export function matchTableIntent(input, { hasTable = false, canRestore = false } = {}) {
+  const raw = clean(input);
+  const s = fold(raw);
+  if (!s) return null;
+
+  if (/^(re)?(affiche|montre|remets|ouvre|rouvre)(-| )?(moi )?(a nouveau |de nouveau )?(le |mon )?(dernier )?(tableau|recap|recapitulatif)( precedent)?( en grand)?$/.test(s) || /^(re ?affiche|remets) le tableau/.test(s)) {
+    if (!hasTable && canRestore) return { restore: true };
+    if (hasTable) return { expand: true };
+    return null;
+  }
+  if (!hasTable) return null;
+
+  if (/^(ferme|supprime|enleve|retire|efface|cache)( le| ce)? (tableau|recap|recapitulatif)$/.test(s)) return { close: true };
+  if (/^(agrandis|agrandir|agrandi|zoome|plein ecran|en grand|affiche (le |la |ca |ce )?en grand|mets (le |la |ca |ce )?en grand|montre (le |la |ca |ce )?en grand|affiche le en grand)/.test(s) || /\b(plein ecran|en grand)\b/.test(s)) return { expand: true };
+  if (/^(reduis|reduire|reduit|retrecis|rapetisse|en petit|remets (le |la |ca )?en petit|reviens$|range (le|la|ca))/.test(s) || /\ben petit\b/.test(s)) return { expand: false };
+  if (/(inverse|echange|permute|intervertis|transpose|tourne)r?( les)? (lignes? et (les )?colonnes?|colonnes? et (les )?lignes?)|^transpose/.test(s)) return { transpose: true };
+
+  const layouts = [
+    [/\b(cartes?|fiches?|vignettes?|tuiles?|blocs?)\b/, 'cards'],
+    [/\b(liste|lignes simples|a puces)\b/, 'list'],
+    [/\b(comparaison|comparatif|compare|comparer|cote a cote|face a face)\b/, 'compare'],
+    [/\b(tableau|grille|table)\b/, 'table'],
+  ];
+  if (/\b(en|sous forme|forme de|format|disposition|affiche|affichage|mets|passe|montre|presente|vue|fais|transforme|change)\b/.test(s)) {
+    for (const [re, layout] of layouts) if (re.test(s) && !/\b(trie|classe|range|ordonne)\b/.test(s)) return { layout, ...(/\ben grand\b/.test(s) ? { expand: true } : {}) };
+  }
+
+  let m = raw.match(/(?:tri(?:e|er|es)?|class(?:e|er)|rang(?:e|er)|ordonn(?:e|er))(?:[- ](?:le|la|les|moi|ça|ca))*\s+(?:par|selon|en fonction d[eu]|suivant|sur)\s+(?:l'|l’|la |le |les |ordre d[eu]s? |colonne )*(.+?)(?:,?\s+(?:par ordre |en ordre |dans l'ordre |de fa[çc]on )?(croissante?|d[ée]croissante?|du plus (?:petit|bas|faible) au plus (?:grand|haut|[ée]lev[ée])|du plus (?:grand|haut|[ée]lev[ée]) au plus (?:petit|bas|faible)))?$/i);
+  if (m) {
+    const ord = fold(m[2] || '');
+    const order = /^decroissant|^du plus (grand|haut|eleve)/.test(ord) ? 'desc' : ord ? 'asc' : undefined;
+    return { sort: { column: m[1].trim(), order } };
+  }
+  if (/^(inverse|renverse)( l'| le)? (ordre|tri)$|^(ordre|tri) (inverse|decroissant|croissant)$|^(dans l'autre sens|a l'envers)$/.test(s)) {
+    if (/croissant$/.test(s) && !/decroissant$/.test(s)) return { sort: { order: 'asc' } };
+    if (/decroissant$/.test(s)) return { sort: { order: 'desc' } };
+    return { sort: { reverse: true } };
+  }
+
+  m = raw.match(/(?:mets?|met)(?:[- ](?:moi|en))*\s*(?:en (?:[ée]vidence|valeur|avant|surbrillance))\s+(?:la colonne |la ligne |le |la |les |l'|l’)?(.+)$|(?:surligne|souligne|surbrille|fais ressortir|mets en couleur)\s+(?:la colonne |la ligne |le |la |les |l'|l’)?(.+)$/i);
+  if (m) return { highlight: (m[1] || m[2]).trim() };
+  if (/^(enleve|retire|supprime|annule)( la)? (mise en evidence|surbrillance|surlignage)$/.test(s)) return { clearHighlight: true };
+
+  m = raw.match(/(?:cache|masque|enl[èe]ve|retire|supprime)(?:[- ]moi)?\s+(?:la |les )?colonnes?\s+(.+)$/i);
+  if (m) return { hide: m[1].split(/\s+et\s+|,\s*/).map((x) => x.trim()).filter(Boolean) };
+  if (/(affiche|montre|remets|reaffiche)( moi)? (toutes )?les colonnes/.test(s)) return { showAll: true };
   return null;
 }
