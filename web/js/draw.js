@@ -11,6 +11,8 @@ let S = null;
 
 export const isOpen = () => !!S;
 export const hasStrokes = () => !!S?.strokes.some((s) => s.pts.length > 1);
+export const strokeCount = () => S?.strokes.length || 0;
+export const lastStrokeAt = () => (S?.current ? Date.now() : S?.lastStroke || Date.now());
 export const describe = () => (S ? `Mode dessin dans l'air ouvert (${S.strokes.length} trait${S.strokes.length > 1 ? 's' : ''} tracé${S.strokes.length > 1 ? 's' : ''})` : '');
 
 const isPhone = () => matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 820;
@@ -175,6 +177,7 @@ function end() {
   const st = S;
   if (st.current && st.current.pts.length < 2 && st.current.pts.length && st.current.fromHand) st.strokes.pop(); // point isolé = bruit du suivi
   st.current = null;
+  st.lastStroke = Date.now();
   redraw();
   updateButton();
 }

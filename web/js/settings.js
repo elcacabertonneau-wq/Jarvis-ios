@@ -13,6 +13,7 @@ export const defaults = {
   youtubeKey: '',
   cesiumToken: '', // Cesium ion (gratuit) : villes 3D photoréalistes de Google
   mapStyle: 'auto', // auto | photo | satellite | plan
+  initiative: 'on', // on (propose à voix haute) | quiet (à l'écran seulement) | off
   lang: 'fr-FR',
   wakeName: 'jarvis',
   wakeMode: true, // écoute « Jarvis » en permanence par défaut
