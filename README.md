@@ -133,6 +133,25 @@ Ensuite, dites simplement « je rentre ». « Mes routines » affiche, lance, su
 ### Raccourci Siri et écran d'accueil
 Jarvis comprend des adresses spéciales : `?cmd=…` exécute une demande, `?listen=1` écoute directement, `?mode=dessin|ar|traducteur|etiquettes`. Pour « Dis Siri, Jarvis » : dans l'app Raccourcis, enchaînez **Dicter le texte** → **Encoder en URL** → **Ouvrir les URL** (adresse de Jarvis + `?cmd=` + texte encodé). Le détail et l'adresse à copier sont dans **⚙️ Réglages → Raccourci Siri**. Sur Android, un appui long sur l'icône propose Parler, Traducteur, Étiquettes et Dessin.
 
+### Créer et envoyer des fichiers
+Jarvis rédige et fabrique des fichiers de tout type, directement sur l'appareil, puis vous les envoyez avec le bouton **📤 Envoyer**, qui ouvre le menu de partage du téléphone (Mail, Messages, WhatsApp, AirDrop, Fichiers…) ou télécharge le fichier sur ordinateur.
+
+| Dites… | Fichier |
+|---|---|
+| « Crée un PDF sur l'histoire de Rome », « écris une lettre de motivation en Word » | PDF, Word (.docx) : titres, listes, tableaux, gras, liens |
+| « Fais-moi un fichier Excel de mon budget mensuel » | Excel (.xlsx) avec colonnes, nombres et filtres ; ou CSV |
+| « Prépare une présentation sur le climat » | PowerPoint (.pptx) aux couleurs de Jarvis, avec notes de l'orateur |
+| « Crée une invitation pour l'anniversaire de Léa samedi à 20 h » | Événement d'agenda (.ics) avec rappel, à ajouter au calendrier |
+| « Crée une fiche contact pour Paul Martin » | Contact (.vcf) |
+| « Génère un script Python qui renomme mes photos », « une page web », « un fichier JSON », « un logo SVG » | Code, HTML, JSON, SVG, Markdown, texte |
+| « Crée une archive ZIP avec… » | Plusieurs fichiers réunis |
+| « Exporte le tableau en Excel / PDF / Word / CSV » | Le tableau affiché, sans IA |
+| « Enregistre mon dessin », « exporte le modèle 3D », « enregistre cette image » | PNG, modèle 3D (.glb) |
+| « Convertis-le en PDF », « modifie le document : ajoute une conclusion » | Conversion et modification du dernier fichier |
+| « Envoie le fichier », « mes fichiers » | Partage du dernier fichier, liste des fichiers de la session |
+
+Le téléphone n'autorise le partage qu'après un toucher : si vous le demandez à la voix, touchez ensuite « Envoyer ». Les bibliothèques de fabrication (PDF, Word, Excel, PowerPoint, ZIP) ne se chargent qu'au premier fichier de ce type.
+
 ### Réduire les fenêtres
 Chaque carte a un bouton **—** qui la réduit dans une barre en bas (elle continue de fonctionner : vidéo, caméra, minuteur). Le lecteur de musique se réduit aussi en une pastille 🎵. Un clic sur une pastille la rouvre.
 
@@ -242,6 +261,7 @@ web/
 ├── js/arlayers.js        Calques AR : carte 3D réelle (MapLibre) et vrais modèles (Sketchfab)
 ├── js/geo.js             Recherche de lieux, itinéraires et consignes en français
 ├── js/hands.js           Suivi des mains (MediaPipe), partagé par l'AR et le dessin
+├── js/files.js          Création de fichiers (PDF, Word, Excel, PowerPoint, agenda, contact, code, ZIP…) et partage
 ├── js/translate.js       Traducteur en direct (mode interprète) et traductions ponctuelles
 ├── js/routines.js        Routines : une phrase, plusieurs actions
 ├── js/initiative.js      Initiatives : propositions au bon moment, prochaines étapes, réponses oui/non

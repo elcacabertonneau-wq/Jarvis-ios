@@ -236,6 +236,15 @@ function makePedestal(y) {
   return g;
 }
 
+// ---------- Export du modèle affiché (.glb) ----------
+export const canExport = () => !!(S?.content && !S.layer);
+export async function exportGLB() {
+  if (!canExport()) return null;
+  const { GLTFExporter } = await import('three/addons/exporters/GLTFExporter.js');
+  const buf = await new GLTFExporter().parseAsync(S.content, { binary: true, onlyVisible: true });
+  return new Blob([buf], { type: 'model/gltf-binary' });
+}
+
 // ---------- Étiquettes AR : noms et infos posés sur les objets filmés ----------
 // Image actuelle de la caméra (non retournée), pour l'analyse.
 export function captureFrame(maxSide = 768) {

@@ -454,3 +454,33 @@ export function matchToolsIntent(input, { translatorOpen = false, arOpen = false
   if (m) return { routineDelete: m[1] };
   return null;
 }
+
+// ---------- Fichiers ----------
+const FILE_WORDS = /\b(fichier|document|doc|pdf|word|docx|excel|xlsx|tableur|feuille de calcul|powerpoint|pptx|pr[ée]sentation|diaporama|slides?|csv|markdown|html|page web|json|invitation|[ée]v[ée]nement (?:d'agenda|de calendrier|calendrier)|fichier ics|fiche contact|carte de visite|vcard|script|programme|code (?:python|javascript|java|html|css)|archive|zip|svg|logo vectoriel)\b/i;
+const FORMAT_TAIL = '(pdf|word|docx|excel|xlsx|tableur|powerpoint|pptx|pr[ée]sentation|csv|texte|txt|markdown|html|page web|json|zip|archive)';
+export function matchFileIntent(input, { formatFrom = () => '' } = {}) {
+  const raw = clean(input);
+  const s = fold(raw);
+  if (!s) return null;
+  if (/^((montre|affiche|liste|ouvre)( moi)? )?(mes|les) (derniers )?fichiers( crees)?$/.test(s)) return { list: true };
+  if (/^(envoie|partage|transmets|envoies?)( moi)?( le| ce| mon| ton)?( dernier)?( fichier| document| pdf| doc)?( par (mail|e ?mail|message|sms|whatsapp|airdrop))?( a .+)?$/.test(s) && !/\b(image|photo|video|musique)\b/.test(s)) return { sendLast: true };
+  let m = raw.match(new RegExp(`^(?:convertis|transforme|refais|mets|exporte|enregistre)(?:[- ](?:le|la|moi|les))*\\s+(?:le fichier |ce fichier |le document |ce document )?(?:en|au format|sous forme d'?(?:un )?(?:fichier )?)\\s*${FORMAT_TAIL}$`, 'i'));
+  if (m) return { convertLast: formatFrom(m[1]) || 'pdf' };
+  m = raw.match(/^(?:modifie|change|corrige|am[ée]liore|compl[èe]te|mets [àa] jour)(?:[- ]le)?\s+(?:le |ce |mon )?(?:fichier|document|pdf|tableur|fichier excel|diaporama|pr[ée]sentation)\s*[:,]?\s*(.+)$/i);
+  if (m) return { editLast: m[1] };
+
+  // Exports sans IA : tableau affiché, dessin, modèle 3D, image.
+  m = raw.match(new RegExp(`^(?:exporte|convertis|enregistre|sauvegarde|mets|transforme|envoie|partage|t[ée]l[ée]charge|fais)(?:[- ](?:moi|le|la))*\\s+(?:le |ce |mon |un )?(?:tableau|r[ée]cap(?:itulatif)?|comparatif)(?:\\s+(?:en|au format|sous forme d'?(?:un )?(?:fichier )?|dans un fichier)\\s*${FORMAT_TAIL})?$`, 'i'));
+  if (m) return { exportTable: formatFrom(m[1] || '') || 'xlsx' };
+  if (/^(exporte|enregistre|sauvegarde|telecharge|envoie|partage|garde)( moi)?( le| mon| ce)? (dessin|croquis)( en (png|image))?$/.test(s)) return { exportDrawing: true };
+  if (/^(exporte|enregistre|sauvegarde|telecharge|envoie|partage|garde)( moi)?( le| ce| cet| l')? ?(modele 3 ?d|hologramme|maquette|objet 3 ?d|modele)( en (glb|gltf|3 ?d))?$/.test(s)) return { export3D: true };
+  if (/^(exporte|enregistre|sauvegarde|telecharge|envoie|partage|garde)( moi)?( cette| l'| la| cette derniere)? ?(image|photo|illustration)$/.test(s)) return { exportImage: true };
+
+  // Création d'un fichier à partir d'une description (le contenu est rédigé par l'IA).
+  if (/^(cr[ée]e|fais|fait|g[ée]n[èe]re|pr[ée]pare|r[ée]dige|[ée]cris|fabrique|construis|compose|monte|produis|code|programme|exporte|je veux|j'ai besoin d'|j’ai besoin d’)/i.test(raw) && FILE_WORDS.test(raw)) {
+    const format = formatFrom(raw);
+    if (format === 'png') return null; // les images passent par la génération d'images
+    return { create: { format, request: raw } };
+  }
+  return null;
+}
