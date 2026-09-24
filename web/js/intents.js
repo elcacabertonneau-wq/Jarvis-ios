@@ -469,6 +469,10 @@ export function matchFileIntent(input, { formatFrom = () => '' } = {}) {
   m = raw.match(/^(?:modifie|change|corrige|am[ée]liore|compl[èe]te|mets [àa] jour)(?:[- ]le)?\s+(?:le |ce |mon )?(?:fichier|document|pdf|tableur|fichier excel|diaporama|pr[ée]sentation)\s*[:,]?\s*(.+)$/i);
   if (m) return { editLast: m[1] };
 
+  // Texte affiché (réponse, bilan, fiche…) → fichier, fidèlement et sans IA.
+  m = raw.match(new RegExp(`^(?:exporte|exporter|convertis|convertir|enregistre|enregistrer|sauvegarde|sauvegarder|mets|met|mettre|transforme|transformer|envoie|envoyer|partage|partager|t[ée]l[ée]charge|copie|copier|fais|faire|garde|garder)(?:[- ](?:moi|le|la|les|ça))*\\s+(?:tout\\s+)?(?:[çc]a|cela|ceci|le texte|ce texte|la r[ée]ponse|cette r[ée]ponse|ta r[ée]ponse|le bilan|ce bilan|la fiche|cette fiche|le r[ée]sum[ée]|ce r[ée]sum[ée]|le contenu|ce contenu|tout (?:[çc]a|le texte|le bilan)|l'explication|cette explication|le document)\\s+(?:en|vers|dans|sur|au format|sous forme d'?)\\s*(?:un |une )?(?:fichier |document )?${FORMAT_TAIL}$`, 'i'));
+  if (m) return { exportText: formatFrom(m[1]) || 'docx' };
+
   // Exports sans IA : tableau affiché, dessin, modèle 3D, image.
   m = raw.match(new RegExp(`^(?:exporte|convertis|enregistre|sauvegarde|mets|transforme|envoie|partage|t[ée]l[ée]charge|fais)(?:[- ](?:moi|le|la))*\\s+(?:le |ce |mon |un )?(?:tableau|r[ée]cap(?:itulatif)?|comparatif)(?:\\s+(?:en|au format|sous forme d'?(?:un )?(?:fichier )?|dans un fichier)\\s*${FORMAT_TAIL})?$`, 'i'));
   if (m) return { exportTable: formatFrom(m[1] || '') || 'xlsx' };
@@ -477,7 +481,7 @@ export function matchFileIntent(input, { formatFrom = () => '' } = {}) {
   if (/^(exporte|enregistre|sauvegarde|telecharge|envoie|partage|garde)( moi)?( cette| l'| la| cette derniere)? ?(image|photo|illustration)$/.test(s)) return { exportImage: true };
 
   // Création d'un fichier à partir d'une description (le contenu est rédigé par l'IA).
-  if (/^(cr[ée]e|fais|fait|g[ée]n[èe]re|pr[ée]pare|r[ée]dige|[ée]cris|fabrique|construis|compose|monte|produis|code|programme|exporte|je veux|j'ai besoin d'|j’ai besoin d’)/i.test(raw) && FILE_WORDS.test(raw)) {
+  if ((/^(cr[ée]e|cr[ée]er|fais|fait|faire|g[ée]n[èe]re|g[ée]n[ée]rer|pr[ée]pare|pr[ée]parer|r[ée]dige|r[ée]diger|[ée]cris|[ée]crire|fabrique|construis|compose|monte|produis|code|programme|exporte|exporter|mets|met|mettre|je veux|je voudrais|j'aimerais|j'ai besoin d'|j’ai besoin d’|peux[- ]tu|tu peux|pourrais[- ]tu)/i.test(raw) || /\b(?:dans|en|sous forme d'?) (?:un |une )?(?:fichier|document)\b/i.test(raw)) && FILE_WORDS.test(raw)) {
     const format = formatFrom(raw);
     if (format === 'png') return null; // les images passent par la génération d'images
     return { create: { format, request: raw } };

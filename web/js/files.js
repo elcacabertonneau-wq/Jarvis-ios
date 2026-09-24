@@ -3,7 +3,7 @@
 // et les envoie avec le menu de partage du téléphone (Mail, Messages, WhatsApp, AirDrop, Fichiers…).
 // Les bibliothèques de génération ne sont chargées qu'au premier fichier de ce type.
 import * as ui from './ui.js';
-import { renderMarkdown } from './markdown.js';
+import { renderMarkdown, fixTables } from './markdown.js';
 
 const { el } = ui;
 const CDN = 'https://cdn.jsdelivr.net/npm';
@@ -65,7 +65,7 @@ function loadScript(src) {
 // ---------- Markdown → blocs (titres, paragraphes, listes, tableaux, code) ----------
 function blocks(md = '') {
   const out = [];
-  const lines = String(md).replace(/\r/g, '').split('\n');
+  const lines = fixTables(md).split('\n');
   for (let i = 0; i < lines.length; i++) {
     const l = lines[i];
     if (/^```/.test(l)) {

@@ -146,6 +146,7 @@ Jarvis rédige et fabrique des fichiers de tout type, directement sur l'appareil
 | « Génère un script Python qui renomme mes photos », « une page web », « un fichier JSON », « un logo SVG » | Code, HTML, JSON, SVG, Markdown, texte |
 | « Crée une archive ZIP avec… » | Plusieurs fichiers réunis |
 | « Exporte le tableau en Excel / PDF / Word / CSV » | Le tableau affiché, sans IA |
+| « Exporter le texte vers Word », « mets tout ça dans un fichier PDF » | La dernière réponse affichée (réponse, fiche, analyse), telle quelle, tableaux compris |
 | « Enregistre mon dessin », « exporte le modèle 3D », « enregistre cette image » | PNG, modèle 3D (.glb) |
 | « Convertis-le en PDF », « modifie le document : ajoute une conclusion » | Conversion et modification du dernier fichier |
 | « Envoie le fichier », « mes fichiers » | Partage du dernier fichier, liste des fichiers de la session |

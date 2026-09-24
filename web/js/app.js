@@ -192,6 +192,7 @@ async function handle(raw, { spoken = false } = {}) {
     } else {
       const reply = await think(text, { playing: player.nowPlaying(), screen: [ui.describeStage(), tr.describe()].filter(Boolean).join(' ; '), table: tables.describe(), mindmap: mindmap.describe(), ar: ar.describe(), draw: draw.describe(), ...visionContext() });
       if (t !== turn) return;
+      const fullDisplay = reply.display; // réponse complète (tableaux compris), pour l'export en fichier
       // Un tableau Markdown dans la réponse devient un vrai tableau récapitulatif.
       if (reply.display && !reply.actions.some((a) => a?.type === 'table')) {
         const md = extractTable(reply.display);
@@ -201,6 +202,7 @@ async function handle(raw, { spoken = false } = {}) {
         }
       }
       if (reply.display) ui.textCard(reply.title || 'Jarvis', reply.display, '💬', reply.place);
+      if (fullDisplay) rememberText(reply.title, fullDisplay);
       const speech = await runActions(reply.actions, text);
       setBusy(false);
       const steps = [...(reply.suggestions || []), ...nextSteps(reply.actions)];
@@ -363,6 +365,7 @@ const ACTIONS = {
     try { notes = await studyNotes(topic, wiki); } catch (e) { console.warn(e); }
     body.innerHTML = '';
     const md = notes?.display || (wiki ? `## En bref\n${wiki.summary}\n\n${wiki.text.split('\n').filter(Boolean).slice(1, 6).join('\n\n')}` : '');
+    if (md) rememberText(`Fiche · ${topic}`, md);
     if (!md) {
       body.append(el('p', {}, `Je n'ai rien trouvé sur « ${topic} ».`));
       return `Je n'ai rien trouvé sur ${topic}.`;
@@ -812,6 +815,7 @@ const ACTIONS = {
           el('img', { class: 'vision-shot', src: shot, alt: 'Image analysée', onclick: () => ui.lightbox([{ full: shot, thumb: shot, title: 'Image analysée' }]) }),
           reply.display ? el('div', { class: 'md', html: renderMarkdown(reply.display) }) : el('p', { class: 'md' }, reply.speech));
         ui.card(reply.title || 'Analyse visuelle', body, { icon: '👁️', place: reply.place, kind: 'text' });
+        if (reply.display) rememberText(reply.title || 'Analyse visuelle', reply.display);
       }
       const speech = await runActions(reply.actions, prompt);
       return reply.speech || speech || 'Voici mon analyse.';
@@ -964,6 +968,11 @@ async function handleRoute(opts) {
 }
 
 // ---------------- Fichiers ----------------
+// Dernier texte détaillé affiché (réponse, fiche, analyse), pour « exporte le texte en Word ».
+let lastText = null;
+function rememberText(title, markdown) {
+  if (markdown && String(markdown).trim().length > 40) lastText = { title: String(title || '').trim() || 'Document Jarvis', markdown: String(markdown) };
+}
 // Affiche la carte du fichier (aperçu + « Envoyer ») et propose les suites.
 function presentFile(f, speech) {
   ui.collapseCard(); // la carte du fichier (et son bouton « Envoyer ») ne doit pas être cachée par un affichage en grand
@@ -1034,6 +1043,15 @@ async function runFile(c) {
     const f = files.last();
     if (!f) return "Il n'y a pas encore de fichier à modifier.";
     return createFile(f.format, `Voici le fichier actuel (JSON) : ${JSON.stringify({ ...f.spec, blob: undefined }).slice(0, 6000)}\nModifie-le ainsi, en gardant tout le reste : ${c.editLast}`);
+  }
+  if (c.exportText) {
+    // Le texte affiché tel quel ; à défaut, le tableau affiché.
+    if (!lastText && tables.data()) return runFile({ exportTable: c.exportText });
+    if (!lastText) return "Il n'y a pas encore de texte à exporter. Posez-moi d'abord une question, puis dites « exporte le texte en Word ».";
+    const heading = lastText.markdown.match(/^#+\s*(.+)$/m)?.[1];
+    const title = /^(Jarvis|Document Jarvis)$/.test(lastText.title) ? (heading || 'Document Jarvis') : lastText.title;
+    const markdown = lastText.markdown.replace(new RegExp(`^#+\\s*${title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\n`), '');
+    return presentFile(await files.build({ format: c.exportText, name: title, title, markdown, sheets: undefined }));
   }
   if (c.exportTable) {
     const d = tables.data();
@@ -1590,6 +1608,16 @@ function init() {
       else if (modeCmd) handle(modeCmd);
       else if (voice.supported) { firstGesture(); if (!voice.listenOnce()) ui.setLive('Touchez le micro pour parler.', 'reply'); }
     }, 900);
+  }
+
+  // Nouvelle version publiée : on recharge une fois pour l'appliquer (sinon l'ancienne restait en mémoire).
+  if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (reloaded || busy || voice.speaking) return;
+      reloaded = true;
+      location.reload();
+    });
   }
 
   if ('serviceWorker' in navigator && location.protocol === 'https:') {

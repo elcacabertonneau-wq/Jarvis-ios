@@ -14,8 +14,31 @@ export function inline(s) {
   return s.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${esc(codes[i])}</code>`);
 }
 
+// Certaines IA écrivent un tableau sur une seule ligne (« | A | B |---|---| 1 | 2 | 3 | 4 | ») :
+// on le reconstruit ligne par ligne grâce au nombre de colonnes donné par la ligne de séparation.
+export function fixTables(src = '') {
+  return String(src).replace(/\r\n?/g, '\n').split('\n').map((line) => {
+    if (!/\|\s*:?-{3,}:?\s*\|/.test(line)) return line;
+    const tokens = line.split('|').map((t) => t.trim());
+    const s = tokens.findIndex((t) => /^:?-{3,}:?$/.test(t));
+    let n = 0;
+    while (s + n < tokens.length && /^:?-{3,}:?$/.test(tokens[s + n])) n++;
+    const before = tokens.slice(0, s).filter(Boolean);
+    const after = tokens.slice(s + n).filter(Boolean);
+    if (n < 2 || before.length < n || (after.length && after.length % n !== 0 && after.length < n)) return line;
+    // Ligne déjà correcte (séparateur seul) : rien à faire.
+    if (!before.length && !after.length) return line;
+    const header = before.slice(-n);
+    const prefix = before.slice(0, before.length - n).join(' | ');
+    const rows = [];
+    for (let i = 0; i + n <= after.length; i += n) rows.push(after.slice(i, i + n));
+    const rest = after.slice(rows.length * n).join(' ');
+    return [prefix, `| ${header.join(' | ')} |`, `| ${header.map(() => '---').join(' | ')} |`, ...rows.map((r) => `| ${r.join(' | ')} |`), rest].filter(Boolean).join('\n');
+  }).join('\n');
+}
+
 export function renderMarkdown(src = '') {
-  const lines = String(src).replace(/\r\n?/g, '\n').split('\n');
+  const lines = fixTables(src).split('\n');
   const out = [];
   let i = 0;
   while (i < lines.length) {
@@ -84,7 +107,7 @@ export function stripMarkdown(s = '') {
 
 // Extrait le premier tableau Markdown d'un texte : { columns, rows, rest } ou null.
 export function extractTable(src = '') {
-  const lines = String(src).replace(/\r\n?/g, '\n').split('\n');
+  const lines = fixTables(src).split('\n');
   const isRow = (l) => /^\s*\|.*\|\s*$/.test(l);
   for (let i = 0; i + 1 < lines.length; i++) {
     if (!isRow(lines[i]) || !/^\s*\|[\s:|-]+\|\s*$/.test(lines[i + 1])) continue;
