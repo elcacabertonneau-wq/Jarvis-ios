@@ -174,6 +174,8 @@ function paint({ swap = true } = {}) {
 
 // ---------- API ----------
 export function hasTable() { return !!current?.card?.isConnected; }
+// Données complètes du tableau affiché (ou du dernier), pour l'export en fichier.
+export function data() { return (hasTable() ? current.data : lastData) || null; }
 export function canRestore() { return !hasTable() && !!lastData; }
 
 export function show(raw, { expand = true, place = '' } = {}) {

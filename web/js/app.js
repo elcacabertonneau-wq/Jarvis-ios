@@ -1,7 +1,7 @@
 // Orchestrateur de Jarvis : relie la voix, l'IA, les commandes locales et l'affichage.
 import { settings, saveSettings, defaults } from './settings.js';
 import { Voice, chime } from './voice.js';
-import { think, see, explainError, canSee, studyNotes, mindmapFor, arSceneFor, arSceneFromImage, arPlan, routeInfo, labelObjects, memory, activeProviderLabel } from './brain.js';
+import { think, see, explainError, canSee, studyNotes, mindmapFor, arSceneFor, arSceneFromImage, arPlan, routeInfo, labelObjects, fileFor, memory, activeProviderLabel } from './brain.js';
 import * as geo from './geo.js';
 import * as ar from './ar.js';
 import * as draw from './draw.js';
@@ -9,8 +9,9 @@ import * as facts from './facts.js';
 import * as initiative from './initiative.js';
 import * as tr from './translate.js';
 import * as routines from './routines.js';
+import * as files from './files.js';
 import * as camera from './camera.js';
-import { matchIntent, matchTableIntent, matchMindmapIntent, matchARIntent, matchMemoryIntent, matchDrawIntent, matchGeoIntent, styleFrom, matchToolsIntent } from './intents.js';
+import { matchIntent, matchTableIntent, matchMindmapIntent, matchARIntent, matchMemoryIntent, matchDrawIntent, matchGeoIntent, styleFrom, matchToolsIntent, matchFileIntent } from './intents.js';
 import * as mindmap from './mindmap.js';
 import * as tables from './tables.js';
 import { extractTable, renderMarkdown } from './markdown.js';
@@ -106,6 +107,16 @@ async function handle(raw, { spoken = false } = {}) {
   if (toolCmd) {
     setBusy(true);
     const speech = await runTool(toolCmd).catch((e) => { console.warn(e); return `Cette action n'a pas abouti (${explainError(e)}).`; });
+    setBusy(false);
+    await say(speech, t);
+    return;
+  }
+
+  // Fichiers : créer, exporter, convertir, envoyer.
+  const fileCmd = matchFileIntent(text, { formatFrom: files.formatFrom });
+  if (fileCmd) {
+    setBusy(true);
+    const speech = await runFile(fileCmd).catch((e) => { console.warn(e); return `Je n'ai pas pu créer ce fichier (${explainError(e)}).`; });
     setBusy(false);
     await say(speech, t);
     return;
@@ -548,6 +559,11 @@ const ACTIONS = {
     return ui.restoreKind(t.includes('cam') ? 'camera' : kindsFor(t)) ? '' : `Je ne trouve pas d'élément « ${target} » réduit.`;
   },
 
+  // ---------- Fichiers (appelable par l'IA) ----------
+  async file({ format = '', request = '', name = '' } = {}) {
+    return runFile({ create: { format: files.FORMATS[format] ? format : files.formatFrom(`${format} ${request}`), request: request || name || `Crée un fichier ${format}` } });
+  },
+
   // ---------- Traducteur, étiquettes, routines (aussi appelables par l'IA) ----------
   async translator({ lang = 'anglais', text = '' } = {}) { return runTool(text ? { translateOnce: { text, to: lang } } : { translator: lang }); },
   async labels() { return runTool({ labels: true }); },
@@ -945,6 +961,104 @@ async function handleRoute(opts) {
   const speech = await ACTIONS.route(opts).catch(() => "Je n'ai pas pu recalculer l'itinéraire.");
   setBusy(false);
   await say(speech);
+}
+
+// ---------------- Fichiers ----------------
+// Affiche la carte du fichier (aperçu + « Envoyer ») et propose les suites.
+function presentFile(f, speech) {
+  ui.collapseCard(); // la carte du fichier (et son bouton « Envoyer ») ne doit pas être cachée par un affichage en grand
+  files.card(f, { onSent: (r) => { if (r === 'shared') ui.setLive('Fichier envoyé.', 'reply'); } });
+  const alt = { pdf: ['docx', '📘 En Word'], docx: ['pdf', '📕 En PDF'], xlsx: ['csv', '🧾 En CSV'], csv: ['xlsx', '📗 En Excel'], md: ['pdf', '📕 En PDF'], html: ['pdf', '📕 En PDF'], txt: ['pdf', '📕 En PDF'] }[f.format];
+  initiative.suggest([alt ? { label: alt[1], say: `convertis-le en ${alt[0] === 'docx' ? 'word' : alt[0] === 'xlsx' ? 'excel' : alt[0]}` } : null, { label: '🗂️ Mes fichiers', say: 'mes fichiers' }].filter(Boolean));
+  const fmt = files.FORMATS[f.format]?.label || 'fichier';
+  return speech || `Votre ${fmt} « ${f.title} » est prêt. Touchez « Envoyer » pour choisir l'application et le destinataire.`;
+}
+
+// Le contenu est rédigé par l'IA selon le format, puis le fichier est fabriqué sur l'appareil.
+async function createFile(format, request) {
+  if (!hasAI()) { showOnboarding(); return "Pour rédiger un fichier, activez d'abord mon intelligence (clé gratuite Groq ou Gemini)."; }
+  const fmt = files.FORMATS[format] ? format : 'pdf';
+  const wait = ui.card(`Fichier ${files.FORMATS[fmt].label} en préparation`, el('div', {}, ui.loading(), el('p', { class: 'sources' }, 'Rédaction du contenu, puis fabrication du fichier…')), { icon: files.FORMATS[fmt].icon, kind: 'file' });
+  try {
+    const context = [tables.describe() && `Tableau affiché : ${tables.describe()}`, mindmap.describe() && `Carte mentale affichée : ${mindmap.describe()}`, `Écran : ${ui.describeStage()}`].filter(Boolean).join('\n');
+    const spec = await fileFor(request, fmt, context);
+    const f = await files.build(spec);
+    return presentFile(f, spec.speech ? `${spec.speech} Touchez « Envoyer » pour le partager.` : '');
+  } finally {
+    ui.removeCard(wait);
+  }
+}
+
+const tableSpec = (d, format) => ({
+  format, name: d.title, title: d.title,
+  sheets: [{ name: d.title, columns: d.columns, rows: d.rows }],
+  markdown: `${d.note ? `${d.note}\n\n` : ''}| ${d.columns.join(' | ')} |\n| ${d.columns.map(() => '---').join(' | ')} |\n${d.rows.map((r) => `| ${r.join(' | ')} |`).join('\n')}`,
+});
+const dataUrlBlob = async (u) => (await fetch(u)).blob();
+
+async function runFile(c) {
+  if (c.list) {
+    if (!files.created.length) return "Vous n'avez pas encore créé de fichier. Dites par exemple : crée un PDF sur l'histoire de Rome.";
+    const body = el('ul', { class: 'mem-list' }, files.created.map((f) => el('li', {},
+      el('span', { class: 'mem-text' }, `${files.FORMATS[f.format]?.icon || '📄'} ${f.name}`),
+      el('button', { type: 'button', class: 'icon-btn', title: 'Envoyer', 'aria-label': `Envoyer ${f.name}`, onclick: () => files.share(f) }, '📤'),
+      el('button', { type: 'button', class: 'icon-btn', title: 'Télécharger', 'aria-label': `Télécharger ${f.name}`, onclick: () => files.download(f) }, '⬇️'))));
+    ui.card('Mes fichiers', body, { icon: '🗂️', kind: 'files' });
+    return `${files.created.length} fichier${files.created.length > 1 ? 's' : ''} créé${files.created.length > 1 ? 's' : ''} pendant cette session.`;
+  }
+  if (c.sendLast) {
+    const f = files.last();
+    if (!f) return "Il n'y a pas encore de fichier à envoyer. Demandez-moi d'abord d'en créer un.";
+    // Le partage n'est autorisé qu'à la suite d'un toucher : on essaie, sinon on affiche le bouton.
+    try {
+      const file = new File([f.blob], f.name, { type: f.blob.type });
+      if (navigator.canShare?.({ files: [file] })) { await navigator.share({ files: [file], title: f.title }); return ''; }
+    } catch (e) { if (e?.name === 'AbortError') return ''; }
+    files.card(f);
+    return `Touchez « Envoyer » sur la carte de ${f.name} pour choisir l'application et le destinataire.`;
+  }
+  if (c.convertLast) {
+    const f = files.last();
+    if (!f) return "Il n'y a pas encore de fichier à convertir.";
+    const textual = ['pdf', 'docx', 'md', 'html', 'txt'];
+    const sheet = ['xlsx', 'csv'];
+    const same = (textual.includes(f.format) && textual.includes(c.convertLast)) || (sheet.includes(f.format) && [...sheet, 'pdf', 'docx', 'html', 'md'].includes(c.convertLast) && f.spec.sheets);
+    if (same) {
+      const spec = { ...f.spec, format: c.convertLast };
+      if (!spec.markdown && spec.sheets) spec.markdown = tableSpec({ title: f.title, note: '', ...spec.sheets[0] }, c.convertLast).markdown;
+      return presentFile(await files.build(spec));
+    }
+    return createFile(c.convertLast, `Convertis ce contenu en fichier ${c.convertLast}, sans rien perdre : ${JSON.stringify({ ...f.spec, blob: undefined }).slice(0, 6000)}`);
+  }
+  if (c.editLast) {
+    const f = files.last();
+    if (!f) return "Il n'y a pas encore de fichier à modifier.";
+    return createFile(f.format, `Voici le fichier actuel (JSON) : ${JSON.stringify({ ...f.spec, blob: undefined }).slice(0, 6000)}\nModifie-le ainsi, en gardant tout le reste : ${c.editLast}`);
+  }
+  if (c.exportTable) {
+    const d = tables.data();
+    if (!d) return "Il n'y a pas de tableau à exporter. Demandez d'abord un récapitulatif.";
+    return presentFile(await files.build(tableSpec(d, c.exportTable)));
+  }
+  if (c.exportDrawing) {
+    const png = draw.isOpen() && draw.preview();
+    if (!png) return 'Ouvrez le mode dessin et dessinez quelque chose, puis dites « enregistre mon dessin ».';
+    return presentFile(await files.build({ format: 'png', name: 'dessin', title: 'Mon dessin', blob: await dataUrlBlob(png) }));
+  }
+  if (c.export3D) {
+    const blob = ar.isOpen() && await ar.exportGLB().catch(() => null);
+    if (!blob) return "Projetez d'abord une maquette en 3D (les cartes et les modèles Sketchfab ne peuvent pas être exportés).";
+    return presentFile(await files.build({ format: 'glb', name: ar.describe().match(/« (.+) »/)?.[1] || 'modele-3d', title: 'Modèle 3D', blob }));
+  }
+  if (c.exportImage) {
+    const img = camera.getLastImage() || await camera.imageFromScreen();
+    if (!img) return "Il n'y a pas d'image à enregistrer.";
+    const blob = img.dataUrl ? await dataUrlBlob(img.dataUrl) : await fetch(img.url).then((r) => r.blob()).catch(() => null);
+    if (!blob) return "Cette image ne peut pas être enregistrée (elle vient d'un autre site).";
+    return presentFile(await files.build({ format: 'png', name: img.label || 'image', title: img.label || 'Image', blob }));
+  }
+  if (c.create) return createFile(c.create.format || 'pdf', c.create.request);
+  return '';
 }
 
 // ---------------- Traducteur, étiquettes AR, routines ----------------

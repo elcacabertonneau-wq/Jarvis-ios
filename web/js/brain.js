@@ -76,6 +76,7 @@ Actions disponibles (0, 1 ou plusieurs) :
 - {"type":"ar","request":"la demande complète reformulée (ce qu'il faut montrer en 3D)","image":"last|screen","plan_from_image":true} : RÉALITÉ AUGMENTÉE, affichée par-dessus la caméra et manipulée avec les doigts. Jarvis choisit tout seul la meilleure source : vraie carte 3D d'une ville ou d'un lieu (immeubles en relief), vrai modèle 3D (objets, véhicules, animaux, monuments, œuvres, organes…), ou maquette construite (molécules, systèmes, plans de logement). Utilise-le dès que l'utilisateur parle de 3D, d'hologramme, de réalité augmentée, d'AR, de plan ou carte en 3D, ou de projeter quelque chose. "image" seulement pour projeter l'image envoyée ou affichée ("plan_from_image" pour transformer un plan dessiné en maquette).
 - {"type":"route","from":"lieu de départ (vide = position actuelle)","to":"destination","mode":"foot|car|bike"} : ITINÉRAIRE complet : distance, durée, étapes détaillées, conseils pratiques, et tracé sur une carte 3D en réalité augmentée. Utilise-le pour toute demande de trajet, d'itinéraire ou « comment aller à… ». Sans mode précisé : à pied si c'est proche en ville, sinon en voiture.
 - {"type":"ar_update","zoom":1.5,"turn":45,"view":"top|front|side|back","holo":true,"spin":true,"reset":true,"close":true} : modifier l'hologramme affiché (ne mets que les champs utiles)
+- {"type":"file","format":"pdf|docx|xlsx|pptx|csv|txt|md|html|json|ics|vcf|svg|zip|py|js|…","request":"description complète et précise du fichier à créer (contenu, longueur, ton, destinataire, données à reprendre de l'écran)"} : CRÉER UN FICHIER de n'importe quel type (document, tableur, présentation, invitation d'agenda, fiche contact, code, page web…), que l'utilisateur peut ensuite envoyer (Mail, Messages, WhatsApp, AirDrop) avec le bouton « Envoyer ». Utilise-le dès qu'il demande un fichier, un document, un export, une présentation, une invitation, ou d'envoyer quelque chose. Tu ne peux pas envoyer toi-même : dis-lui de toucher « Envoyer » pour choisir l'application et le destinataire.
 - {"type":"translator","lang":"anglais|espagnol|japonais…","text":"(optionnel) phrase à traduire"} : sans "text", ouvre le traducteur en direct (mode interprète : chacun parle dans sa langue, Jarvis traduit à voix haute) ; avec "text", traduit et prononce cette phrase
 - {"type":"labels"} : étiquettes en réalité augmentée : Jarvis nomme et décrit les objets filmés par la caméra, directement sur l'image
 - {"type":"routine","name":"phrase déclencheuse","steps":["commande 1","commande 2"]} : crée une routine ; quand l'utilisateur dira la phrase, Jarvis enchaînera les commandes (formulées comme l'utilisateur les dirait)
@@ -618,6 +619,36 @@ export async function labelObjects(image) {
 - "box" : cadre de l'élément en coordonnées normalisées de 0 à 1000 dans l'image (ymin, xmin, ymax, xmax).
 - Textes en ${lang}. ${facts.forPrompt()}`, 'Étiquette ce que tu vois.', image);
   return (Array.isArray(obj.objects) ? obj.objects : []).filter((o) => o?.label && Array.isArray(o.box) && o.box.length === 4).slice(0, 10);
+}
+
+// Contenu structuré d'un fichier à créer, selon son format.
+export async function fileFor(request, format, context = '') {
+  const lang = settings.lang.startsWith('en') ? 'English' : 'français';
+  const now = new Date();
+  const schema = {
+    pdf: '"markdown":"document complet en Markdown (titres ##, listes, tableaux |…|, **gras**)"',
+    docx: '"markdown":"document complet en Markdown (titres ##, listes, tableaux |…|, **gras**)"',
+    md: '"markdown":"…"', txt: '"markdown":"texte brut"', html: '"code":"page HTML complète et soignée (CSS inclus), ou vide pour un rendu automatique du markdown","markdown":"…"',
+    xlsx: '"sheets":[{"name":"Feuille","columns":["…"],"rows":[["…"]]}] (valeurs numériques sans unité dans les cellules, unités dans les titres de colonnes ; plusieurs feuilles si utile)',
+    csv: '"sheets":[{"name":"…","columns":["…"],"rows":[["…"]]}]',
+    pptx: '"subtitle":"…","slides":[{"title":"…","bullets":["3 à 6 puces courtes"],"notes":"notes de l\'orateur","quote":"(optionnel, remplace les puces)"}] (6 à 12 diapositives)',
+    ics: `"events":[{"title":"…","start":"AAAA-MM-JJTHH:MM (heure locale)","end":"…","allDay":false,"location":"…","description":"…"}] (aujourd'hui : ${now.toLocaleDateString('sv')}, ${now.toLocaleDateString('fr-FR', { weekday: 'long' })})`,
+    vcf: '"contacts":[{"name":"Prénom Nom","phone":"+33…","email":"…","company":"…","title":"…","address":"…","website":"…","note":"…"}]',
+    json: '"code":"JSON valide"', svg: '"code":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=…>…</svg> soigné et autonome"',
+    zip: '"files":[{"format":"…","name":"…","title":"…", ...champs du format}] (2 à 8 fichiers)',
+  }[format] || '"code":"contenu complet du fichier (code commenté et fonctionnel si c’est du code)"';
+  const messages = [
+    { role: 'system', content: `Tu crées des fichiers complets, soignés et prêts à l'emploi. Textes en ${lang} sauf demande contraire. Réponds uniquement en JSON :
+{"format":"${format}","name":"nom-de-fichier-court-sans-extension","title":"titre lisible","speech":"une phrase qui présente le fichier",${schema}}
+Contenu réel et utile (pas de « lorem ipsum », pas de champs à compléter sauf si demandé). ${facts.forPrompt()}` },
+    { role: 'user', content: `${request}${context ? `
+
+[Données disponibles à l'écran]
+${context.slice(0, 6000)}` : ''}` },
+  ];
+  const spec = parseJSON(await complete(messages, { json: true, maxTokens: 7000 }));
+  spec.format = format;
+  return spec;
 }
 
 // Traduction d'un texte (IA, puis service gratuit MyMemory en secours).
