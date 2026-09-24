@@ -76,6 +76,9 @@ Actions disponibles (0, 1 ou plusieurs) :
 - {"type":"ar","request":"la demande complète reformulée (ce qu'il faut montrer en 3D)","image":"last|screen","plan_from_image":true} : RÉALITÉ AUGMENTÉE, affichée par-dessus la caméra et manipulée avec les doigts. Jarvis choisit tout seul la meilleure source : vraie carte 3D d'une ville ou d'un lieu (immeubles en relief), vrai modèle 3D (objets, véhicules, animaux, monuments, œuvres, organes…), ou maquette construite (molécules, systèmes, plans de logement). Utilise-le dès que l'utilisateur parle de 3D, d'hologramme, de réalité augmentée, d'AR, de plan ou carte en 3D, ou de projeter quelque chose. "image" seulement pour projeter l'image envoyée ou affichée ("plan_from_image" pour transformer un plan dessiné en maquette).
 - {"type":"route","from":"lieu de départ (vide = position actuelle)","to":"destination","mode":"foot|car|bike"} : ITINÉRAIRE complet : distance, durée, étapes détaillées, conseils pratiques, et tracé sur une carte 3D en réalité augmentée. Utilise-le pour toute demande de trajet, d'itinéraire ou « comment aller à… ». Sans mode précisé : à pied si c'est proche en ville, sinon en voiture.
 - {"type":"ar_update","zoom":1.5,"turn":45,"view":"top|front|side|back","holo":true,"spin":true,"reset":true,"close":true} : modifier l'hologramme affiché (ne mets que les champs utiles)
+- {"type":"translator","lang":"anglais|espagnol|japonais…","text":"(optionnel) phrase à traduire"} : sans "text", ouvre le traducteur en direct (mode interprète : chacun parle dans sa langue, Jarvis traduit à voix haute) ; avec "text", traduit et prononce cette phrase
+- {"type":"labels"} : étiquettes en réalité augmentée : Jarvis nomme et décrit les objets filmés par la caméra, directement sur l'image
+- {"type":"routine","name":"phrase déclencheuse","steps":["commande 1","commande 2"]} : crée une routine ; quand l'utilisateur dira la phrase, Jarvis enchaînera les commandes (formulées comme l'utilisateur les dirait)
 - {"type":"remember","fact":"phrase courte à la première personne, ex. « Je suis allergique aux noix »"} : retenir durablement une information sur l'utilisateur (prénom, allergies, goûts, ville, proches, dates importantes, objectifs…). Utilise-le quand il te demande de retenir quelque chose, ou quand il partage spontanément une information personnelle durable et utile ; confirme-le en quelques mots. Jamais pour des choses passagères ni pour des mots de passe ou codes secrets.
 - {"type":"forget","fact":"ce qu'il faut oublier"} : oublier un souvenir (ou "all" pour tout oublier)
 - {"type":"memory"} : afficher tout ce que tu as retenu sur l'utilisateur
@@ -578,28 +581,65 @@ Rédige "display" avec : "### En bref" (2 phrases), "### Autres façons d'y alle
   return parseReply(await complete(messages, { json: true, maxTokens: 2500 }));
 }
 
-// Transforme une image de plan (croquis, plan d'architecte, photo de plan) en maquette 3D.
-export async function arSceneFromImage(image, request = '') {
+// Appel « vision » générique qui renvoie un objet JSON (plans, étiquettes…), avec bascule entre fournisseurs.
+async function visionJSON(system, request, image) {
   const order = ['gemini', 'groq', 'claude'];
   if (VISION[settings.provider]) order.unshift(...order.splice(order.indexOf(settings.provider), 1));
-  const messages = [
-    { role: 'system', content: `Tu es un architecte et modélisateur 3D. Une image est jointe : un plan (logement, bâtiment, salle, jardin…) ou un schéma. Reconstruis-le en maquette 3D fidèle. Lis les noms des pièces et les cotes écrites ; sinon estime les dimensions en mètres d'après les proportions (une porte ≈ 0,9 m, un lit double ≈ 1,6 × 2 m). Si l'image n'est pas un plan, modélise en 3D l'objet ou le schéma représenté avec "parts". Réponds uniquement en JSON : ${AR_SCHEMA}\n${AR_RULES}` },
-    { role: 'user', content: request || 'Transforme ce plan en maquette 3D.' },
-  ];
-  let lastErr = new Error('Aucune IA capable de voir n’est configurée.');
+  const messages = [{ role: 'system', content: system }, { role: 'user', content: request }];
+  const failures = [];
   for (const name of order) {
     const p = VISION[name];
     if (!p.ok(image)) continue;
     try {
       const raw = await p.fn(messages, image);
-      if (raw?.trim()) return parseJSON(raw);
+      const obj = raw?.trim() && extractJSON(raw);
+      if (obj) return obj;
+      failures.push(`${VISION_LABEL[name]} : réponse illisible`);
     } catch (e) {
-      lastErr = e;
-      console.warn(`[Jarvis] plan 3D ${name} a échoué :`, e.message);
+      failures.push(`${VISION_LABEL[name]} : ${explainError(e)}`);
+      console.warn(`[Jarvis] vision ${name} :`, e.message, e.detail || '');
     }
   }
-  throw lastErr;
+  throw new Error(failures.join(' · ') || 'aucune IA capable de voir n’est configurée (clé Groq ou Gemini gratuite)');
 }
+
+// Transforme une image de plan (croquis, plan d'architecte, photo de plan) en maquette 3D.
+export function arSceneFromImage(image, request = '') {
+  return visionJSON(`Tu es un architecte et modélisateur 3D. Une image est jointe : un plan (logement, bâtiment, salle, jardin…) ou un schéma. Reconstruis-le en maquette 3D fidèle. Lis les noms des pièces et les cotes écrites ; sinon estime les dimensions en mètres d'après les proportions (une porte ≈ 0,9 m, un lit double ≈ 1,6 × 2 m). Si l'image n'est pas un plan, modélise en 3D l'objet ou le schéma représenté avec "parts". Réponds uniquement en JSON : ${AR_SCHEMA}\n${AR_RULES}`,
+    request || 'Transforme ce plan en maquette 3D.', image);
+}
+
+// Étiquettes AR : objets visibles, avec leur position dans l'image (0 à 1000).
+export async function labelObjects(image) {
+  const lang = settings.lang.startsWith('en') ? 'English' : 'français';
+  const obj = await visionJSON(`Tu identifies ce que voit la caméra de l'utilisateur pour afficher des étiquettes en réalité augmentée. Réponds uniquement en JSON :
+{"objects":[{"label":"nom précis (1 à 4 mots)","info":"une phrase courte et utile : espèce, modèle, matière, usage, fait marquant, prix indicatif…","box":[ymin,xmin,ymax,xmax]}]}
+- 3 à 8 éléments les plus intéressants (objets, plantes, animaux, aliments, monuments, textes, appareils…), les plus reconnaissables d'abord. Sois précis (« ficus benjamina », « iPhone 13 », « tasse en céramique ») et honnête si tu n'es pas sûr.
+- "box" : cadre de l'élément en coordonnées normalisées de 0 à 1000 dans l'image (ymin, xmin, ymax, xmax).
+- Textes en ${lang}. ${facts.forPrompt()}`, 'Étiquette ce que tu vois.', image);
+  return (Array.isArray(obj.objects) ? obj.objects : []).filter((o) => o?.label && Array.isArray(o.box) && o.box.length === 4).slice(0, 10);
+}
+
+// Traduction d'un texte (IA, puis service gratuit MyMemory en secours).
+export async function translateText(text, from, to) {
+  if (settings.groqKey || settings.geminiKey || settings.claudeKey) {
+    try {
+      const raw = await complete([
+        { role: 'system', content: `Tu es un interprète professionnel. Traduis fidèlement et naturellement de ${from} vers ${to}, dans un registre oral courant. Réponds uniquement en JSON : {"translation":"…"}` },
+        { role: 'user', content: text },
+      ], { json: true, maxTokens: 600 });
+      const t = extractJSON(raw)?.translation;
+      if (t) return String(t);
+    } catch (e) { console.warn('[Jarvis] traduction IA :', e.message); }
+  }
+  const code = (l) => String(l).slice(0, 2);
+  const d = await fetchJSON(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(text.slice(0, 480))}&langpair=${code(fromCode(from))}|${code(fromCode(to))}`, { timeout: 10000 });
+  const t = d?.responseData?.translatedText;
+  if (!t) throw new Error('Traduction indisponible');
+  return t;
+}
+const LANG_CODES = { français: 'fr', anglais: 'en', espagnol: 'es', allemand: 'de', italien: 'it', portugais: 'pt', arabe: 'ar', chinois: 'zh', japonais: 'ja', coréen: 'ko', russe: 'ru', néerlandais: 'nl', turc: 'tr', polonais: 'pl', hindi: 'hi', grec: 'el', suédois: 'sv', ukrainien: 'uk', vietnamien: 'vi', hébreu: 'he' };
+const fromCode = (name) => LANG_CODES[String(name).toLowerCase()] || String(name).slice(0, 2);
 
 // Génère une fiche d'étude structurée à partir de sources Wikipédia.
 export async function studyNotes(topic, wiki) {

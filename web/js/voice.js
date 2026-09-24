@@ -258,6 +258,24 @@ export class Voice {
     return true;
   }
 
+  // Met le micro à disposition d'une autre reconnaissance (traducteur) puis le reprend.
+  pause() {
+    if (this._paused) return;
+    this._paused = true;
+    this._wakeWas = this.wakeEnabled;
+    this.wakeEnabled = false;
+    this.capturing = false;
+    clearTimeout(this.captureTimer);
+    this._stop();
+    try { this.rec?.abort(); } catch { /* déjà arrêtée */ }
+    this._emitState();
+  }
+  resume() {
+    if (!this._paused) return;
+    this._paused = false;
+    if (this._wakeWas) this.setWake(true);
+  }
+
   // Après une réponse vocale, laisse quelques secondes pour enchaîner sans redire « Jarvis ».
   followUp(ms = 6000) {
     if (!this.supported || !this.wakeEnabled) return;
