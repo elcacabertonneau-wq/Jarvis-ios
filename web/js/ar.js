@@ -2,7 +2,7 @@
 // manipulables avec les doigts (suivi des mains MediaPipe), au toucher ou à la souris.
 // Three.js et le modèle de suivi des mains ne sont chargés qu'à la première ouverture.
 import * as ui from './ui.js';
-import { loadHands, BONES, detect } from './hands.js';
+import { loadHands, BONES, detect, toScreen } from './hands.js';
 import { createMap, createPhoto, createModel, searchModels } from './arlayers.js';
 import { settings } from './settings.js';
 
@@ -192,6 +192,7 @@ function disposeTree(obj) {
 function setContent(obj, { title = '', tilt = [0.25, -0.5, 0], pedestal = true } = {}) {
   const st = S;
   if (!st?.holo) return;
+  clearLabels();
   clearLayer();
   if (st.content) { st.holo.remove(st.content); disposeTree(st.content); }
   st.holo.clear();
@@ -235,6 +236,59 @@ function makePedestal(y) {
   return g;
 }
 
+// ---------- Étiquettes AR : noms et infos posés sur les objets filmés ----------
+// Image actuelle de la caméra (non retournée), pour l'analyse.
+export function captureFrame(maxSide = 768) {
+  const v = S?.video;
+  if (!S?.stream || !v?.videoWidth) return null;
+  const k = Math.min(1, maxSide / Math.max(v.videoWidth, v.videoHeight));
+  const c = document.createElement('canvas');
+  c.width = Math.round(v.videoWidth * k);
+  c.height = Math.round(v.videoHeight * k);
+  c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+  return c.toDataURL('image/jpeg', 0.82);
+}
+export const hasCamera = () => !!S?.stream;
+
+// Vide la scène (hologramme, carte, modèle) pour ne garder que la caméra.
+export function clearScene(title = '') {
+  if (!S) return;
+  clearLayer();
+  if (S.content) { S.holo?.remove(S.content); disposeTree(S.content); S.content = null; }
+  S.holo?.clear();
+  S.anims = [];
+  S.renderer?.render(S.scene, S.camera);
+  S.title = title;
+  S.root.querySelector('.ar-title').textContent = title || 'Réalité augmentée';
+}
+
+// objects : [{ label, info, box: [ymin, xmin, ymax, xmax] (0 à 1000) }]
+export function showLabels(objects, { onTag } = {}) {
+  if (!S) return 0;
+  clearLabels();
+  const W = S.root.clientWidth;
+  const H = S.root.clientHeight;
+  const layer = el('div', { class: 'ar-tags' });
+  objects.forEach((o, i) => {
+    const [y0, x0, y1, x1] = o.box.map((n) => Math.max(0, Math.min(1000, +n || 0)) / 1000);
+    const a = toScreen({ x: x0, y: y0 }, S.video, W, H, S.facing === 'user');
+    const b = toScreen({ x: x1, y: y1 }, S.video, W, H, S.facing === 'user');
+    const left = Math.min(a.x, b.x);
+    const top = Math.min(a.y, b.y);
+    const w = Math.abs(b.x - a.x);
+    const h = Math.abs(b.y - a.y);
+    if (w < 6 || h < 6) return;
+    const tag = el('button', { type: 'button', class: `ar-tag${top < 90 ? ' inside' : ''}`, style: `left:${left}px;top:${top}px;width:${w}px;height:${h}px;--d:${i * 70}ms;--in:${Math.max(6, 76 - top)}px`, onclick: () => onTag?.(o) },
+      el('span', { class: 'ar-tag-label' }, el('b', {}, o.label), o.info ? el('small', {}, o.info) : null));
+    layer.append(tag);
+  });
+  S.root.insertBefore(layer, S.root.querySelector('.ar-top'));
+  S.tags = layer;
+  return layer.children.length;
+}
+export function clearLabels() { S?.tags?.remove(); if (S) S.tags = null; }
+export const hasLabels = () => !!S?.tags;
+
 // ---------- Calques : carte 3D réelle et vrais modèles ----------
 function clearLayer() {
   const st = S;
@@ -247,6 +301,7 @@ function clearLayer() {
 // Vide l'hologramme Three.js et installe un calque (carte ou modèle) sous les gestes.
 function setLayer(layer, title) {
   const st = S;
+  clearLabels();
   clearLayer();
   if (st.content) { st.holo.remove(st.content); disposeTree(st.content); st.content = null; }
   st.holo.clear();

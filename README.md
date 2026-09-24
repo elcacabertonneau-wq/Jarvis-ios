@@ -117,6 +117,22 @@ Jarvis ne se contente plus de répondre : il propose la suite au bon moment. Ré
 
 Jarvis ne propose qu'une chose à la fois, jamais pendant qu'il parle ou réfléchit, au plus une fois par minute à voix haute, et chaque rappel du jour une seule fois. **⚙️ Réglages → Initiatives** : à voix haute, discrètement (à l'écran seulement) ou jamais. Votre ville est déduite de votre mémoire (« retiens que j'habite à Lyon ») ou de la dernière météo demandée.
 
+### Traducteur en direct
+« Mode interprète anglais », « traducteur espagnol », « aide-moi à parler avec quelqu'un en italien » : deux gros boutons, un par personne. Chacun touche le sien et parle dans sa langue ; Jarvis traduit et le dit à voix haute dans la langue de l'autre (20 langues). On peut aussi écrire. Pour une phrase ponctuelle : « traduis "où est la gare ?" en japonais », « comment dit-on merci beaucoup en coréen ». Pour un menu ou un panneau : « traduis ce que tu vois sur ma caméra ».
+
+### Étiquettes AR
+« Étiquette ce que tu vois », « identifie tout ce qu'il y a autour de moi » : Jarvis nomme les objets filmés (plantes, appareils, aliments, monuments…) et pose une étiquette avec une info utile directement sur l'image. Les étiquettes s'actualisent quand la caméra bouge (ou « actualise »). Touchez-en une pour en savoir plus ou la voir en 3D.
+
+### Routines
+Une phrase lance plusieurs actions d'affilée :
+- « Crée une routine je rentre : mets du jazz, puis donne la météo de demain et baisse le son »
+- « Quand je dis bonne nuit, mets de la musique relaxante et lance un minuteur de 30 minutes »
+
+Ensuite, dites simplement « je rentre ». « Mes routines » affiche, lance, supprime ou crée des routines (avec des exemples prêts à l'emploi).
+
+### Raccourci Siri et écran d'accueil
+Jarvis comprend des adresses spéciales : `?cmd=…` exécute une demande, `?listen=1` écoute directement, `?mode=dessin|ar|traducteur|etiquettes`. Pour « Dis Siri, Jarvis » : dans l'app Raccourcis, enchaînez **Dicter le texte** → **Encoder en URL** → **Ouvrir les URL** (adresse de Jarvis + `?cmd=` + texte encodé). Le détail et l'adresse à copier sont dans **⚙️ Réglages → Raccourci Siri**. Sur Android, un appui long sur l'icône propose Parler, Traducteur, Étiquettes et Dessin.
+
 ### Réduire les fenêtres
 Chaque carte a un bouton **—** qui la réduit dans une barre en bas (elle continue de fonctionner : vidéo, caméra, minuteur). Le lecteur de musique se réduit aussi en une pastille 🎵. Un clic sur une pastille la rouvre.
 
@@ -226,6 +242,8 @@ web/
 ├── js/arlayers.js        Calques AR : carte 3D réelle (MapLibre) et vrais modèles (Sketchfab)
 ├── js/geo.js             Recherche de lieux, itinéraires et consignes en français
 ├── js/hands.js           Suivi des mains (MediaPipe), partagé par l'AR et le dessin
+├── js/translate.js       Traducteur en direct (mode interprète) et traductions ponctuelles
+├── js/routines.js        Routines : une phrase, plusieurs actions
 ├── js/initiative.js      Initiatives : propositions au bon moment, prochaines étapes, réponses oui/non
 ├── js/facts.js           Mémoire personnelle (souvenirs sur l'utilisateur)
 ├── js/services.js        Images, Wikipédia, YouTube, radio, météo

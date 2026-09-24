@@ -216,6 +216,14 @@
       </fieldset>
 
       <fieldset>
+        <legend>Raccourci Siri et écran d'accueil</legend>
+        <p class="fine">Pour dire « Dis Siri, Jarvis » : ouvrez l'app <b>Raccourcis</b> → <b>+</b>, puis ajoutez dans l'ordre : <b>Dicter le texte</b> (langue : français) → <b>Encoder en URL</b> (le texte dicté) → <b>Ouvrir les URL</b> avec l'adresse ci-dessous suivie de la variable <i>Texte encodé</i>. Nommez le raccourci « Jarvis ». Siri vous demande votre commande, puis Jarvis s'ouvre et l'exécute.</p>
+        <div class="row"><input id="shortcut-url" class="field" type="text" readonly aria-label="Adresse du raccourci"><button type="button" class="ghost" id="copy-shortcut">Copier</button></div>
+        <p class="fine">Autres adresses utiles : <code>?listen=1</code> (écoute directe), <code>?mode=dessin</code>, <code>?mode=ar</code>, <code>?mode=traducteur</code>, <code>?mode=etiquettes</code>. Sur Android, un appui long sur l'icône propose ces raccourcis.</p>
+        <button type="button" class="ghost" id="show-routines">⚡ Mes routines</button>
+      </fieldset>
+
+      <fieldset>
         <legend>Initiatives</legend>
         <label>Jarvis prend des initiatives
           <select name="initiative">

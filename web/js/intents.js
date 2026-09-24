@@ -416,3 +416,41 @@ export function matchGeoIntent(input) {
   }
   return null;
 }
+
+// ---------- Traducteur, étiquettes AR, routines ----------
+const LANG_WORDS = "fran[çc]ais|anglais|am[ée]ricain|english|espagnol|allemand|italien|portugais|br[ée]silien|arabe|chinois|mandarin|japonais|cor[ée]en|russe|n[ée]erlandais|hollandais|turc|polonais|hindi|grec|su[ée]dois|ukrainien|vietnamien|h[ée]breu";
+export function matchToolsIntent(input, { translatorOpen = false, arOpen = false } = {}) {
+  const raw = clean(input);
+  const s = fold(raw);
+  if (!s) return null;
+
+  // Traducteur en direct.
+  let m = raw.match(new RegExp(`^(?:(?:ouvre|lance|active|d[ée]marre|mets|passe en)(?:[- ]moi)?\\s+)?(?:le |un |en )?(?:mode )?(?:traducteur|interpr[èe]te|traduction (?:en )?(?:direct|simultan[ée]e))(?:\\s+(?:en |vers l'|vers le |vers |fran[çc]ais[- ]|avec l'|de l')?(${LANG_WORDS}))?$`, 'i'))
+    || raw.match(new RegExp(`^(?:traduis|traduire|traduit)(?:[- ]moi)?\\s+(?:tout )?(?:ce que (?:je dis|je vais dire|il dit|elle dit|on dit)|notre conversation|la conversation|en direct|en temps r[ée]el)\\s+(?:en |vers l'|vers le |vers )?(${LANG_WORDS})$`, 'i'))
+    || raw.match(new RegExp(`^(?:aide[- ]moi [àa] |je dois |je veux |j'aimerais )?(?:parler|discuter|communiquer)(?: avec (?:quelqu'un|une personne|lui|elle|un [\\w-]+|une [\\w-]+))? en (${LANG_WORDS})$`, 'i'));
+  if (m) return { translator: m[1] || 'anglais' };
+  // « traduis "bonjour, où est la gare ?" en japonais »
+  m = raw.match(new RegExp(`^(?:traduis|traduire|traduit|comment (?:on )?dit[- ]on|comment dire)(?:[- ]moi)?\\s+[«"“]?(.+?)[»"”]?\\s+en\\s+(${LANG_WORDS})$`, 'i'));
+  if (m && !/\b(?:cette|cet|ce|l'|la) (?:image|photo|texte|page|document|menu|panneau|étiquette)\b|cam[ée]ra/i.test(m[1])) return { translateOnce: { text: m[1], to: m[2] } };
+  if (translatorOpen) {
+    if (/^(ferme|quitte|arrete|coupe|stop|termine)( le)?( traducteur| mode interprete| la traduction| l'interprete)?$/.test(s)) return { translatorClose: true };
+    m = s.match(new RegExp(`^(?:passe |change |mets )?(?:en |vers l'|vers le |vers |pour l'|pour le )?(${LANG_WORDS.normalize('NFD').replace(/[̀-ͯ]/g, '')})$`));
+    if (m) return { translator: m[1] };
+  }
+
+  // Étiquettes AR.
+  if (/^((mets|affiche|montre|ajoute|pose)( moi)? des etiquettes( sur (tout|ce que tu vois|ce que je vois|les objets))?|etiquette( moi)? (tout|ce que tu vois|ce que je vois|les objets|la piece|autour de moi)|mode etiquettes?|etiquettes? (ar|en realite augmentee)|identifie( moi)? tout( ce qu'il y a)?( autour de moi| dans la piece| devant moi)?|scanne( moi)? (la piece|autour de moi|ce qui m'entoure|tout)|qu'est ce qu'il y a autour de moi)$/.test(s)) return { labels: true };
+  if (arOpen) {
+    if (/^(rescanne|re ?scanne|actualise|rafraichis|mets a jour|refais)( les etiquettes| le scan)?$/.test(s)) return { labels: true };
+    if (/^(enleve|retire|efface|cache|supprime|arrete)( les| le mode)? etiquettes?$/.test(s)) return { labelsOff: true };
+  }
+
+  // Routines.
+  m = raw.match(/^(?:cr[ée]e|ajoute|enregistre|programme|fais|fait|configure|invente)(?:[- ]moi)?\s+(?:une |la |ma )?(?:nouvelle )?routine\s+(?:appel[ée]e\s+|nomm[ée]e\s+|qui s'appelle\s+)?[«"“]?(.+?)[»"”]?\s*(?::|—|-|qui|pour|avec|où tu|dans laquelle tu)\s*(.+)$/i)
+    || raw.match(/^quand je (?:dis|te dis|dirai)\s+[«"“]?(.+?)[»"”]?\s*(?:,|:|\balors\b|\btu\b)\s*(?:alors\s+)?(?:tu\s+)?(?:fais|feras|lances?|lanceras|dois)?\s*:?\s*(.+)$/i);
+  if (m) return { routineCreate: { name: m[1].trim(), steps: m[2].trim() } };
+  if (/^((montre|affiche|liste|donne)( moi)? )?(mes|les|tes) routines$|^quelles sont (mes|les) routines$/.test(s)) return { routinesShow: true };
+  m = raw.match(/^(?:supprime|efface|retire|enl[èe]ve|oublie)(?:[- ]moi)?\s+(?:la |ma )?routine\s+[«"“]?(.+?)[»"”]?$/i);
+  if (m) return { routineDelete: m[1] };
+  return null;
+}

@@ -1,14 +1,16 @@
 // Orchestrateur de Jarvis : relie la voix, l'IA, les commandes locales et l'affichage.
 import { settings, saveSettings, defaults } from './settings.js';
 import { Voice, chime } from './voice.js';
-import { think, see, explainError, canSee, studyNotes, mindmapFor, arSceneFor, arSceneFromImage, arPlan, routeInfo, memory, activeProviderLabel } from './brain.js';
+import { think, see, explainError, canSee, studyNotes, mindmapFor, arSceneFor, arSceneFromImage, arPlan, routeInfo, labelObjects, memory, activeProviderLabel } from './brain.js';
 import * as geo from './geo.js';
 import * as ar from './ar.js';
 import * as draw from './draw.js';
 import * as facts from './facts.js';
 import * as initiative from './initiative.js';
+import * as tr from './translate.js';
+import * as routines from './routines.js';
 import * as camera from './camera.js';
-import { matchIntent, matchTableIntent, matchMindmapIntent, matchARIntent, matchMemoryIntent, matchDrawIntent, matchGeoIntent, styleFrom } from './intents.js';
+import { matchIntent, matchTableIntent, matchMindmapIntent, matchARIntent, matchMemoryIntent, matchDrawIntent, matchGeoIntent, styleFrom, matchToolsIntent } from './intents.js';
 import * as mindmap from './mindmap.js';
 import * as tables from './tables.js';
 import { extractTable, renderMarkdown } from './markdown.js';
@@ -95,6 +97,20 @@ async function handle(raw, { spoken = false } = {}) {
     return;
   }
 
+  // Routine déclenchée par sa phrase (« je rentre »).
+  const routine = !routineRunning && routines.match(text);
+  if (routine) { await runRoutine(routine); return; }
+
+  // Traducteur, étiquettes AR, routines (instantané).
+  const toolCmd = matchToolsIntent(text, { translatorOpen: tr.isOpen(), arOpen: ar.isOpen() });
+  if (toolCmd) {
+    setBusy(true);
+    const speech = await runTool(toolCmd).catch((e) => { console.warn(e); return `Cette action n'a pas abouti (${explainError(e)}).`; });
+    setBusy(false);
+    await say(speech, t);
+    return;
+  }
+
   // Mémoire personnelle : retenir, afficher, oublier (instantané, sans IA).
   const memCmd = matchMemoryIntent(text);
   if (memCmd) {
@@ -163,7 +179,7 @@ async function handle(raw, { spoken = false } = {}) {
       initiative.suggest(nextSteps(local.actions));
       await say(local.speech || speech, t);
     } else {
-      const reply = await think(text, { playing: player.nowPlaying(), screen: ui.describeStage(), table: tables.describe(), mindmap: mindmap.describe(), ar: ar.describe(), draw: draw.describe(), ...visionContext() });
+      const reply = await think(text, { playing: player.nowPlaying(), screen: [ui.describeStage(), tr.describe()].filter(Boolean).join(' ; '), table: tables.describe(), mindmap: mindmap.describe(), ar: ar.describe(), draw: draw.describe(), ...visionContext() });
       if (t !== turn) return;
       // Un tableau Markdown dans la réponse devient un vrai tableau récapitulatif.
       if (reply.display && !reply.actions.some((a) => a?.type === 'table')) {
@@ -531,6 +547,11 @@ const ACTIONS = {
     if (/musique|radio|lecteur|son/.test(t)) return player.restoreDock() ? '' : "Le lecteur n'est pas réduit.";
     return ui.restoreKind(t.includes('cam') ? 'camera' : kindsFor(t)) ? '' : `Je ne trouve pas d'élément « ${target} » réduit.`;
   },
+
+  // ---------- Traducteur, étiquettes, routines (aussi appelables par l'IA) ----------
+  async translator({ lang = 'anglais', text = '' } = {}) { return runTool(text ? { translateOnce: { text, to: lang } } : { translator: lang }); },
+  async labels() { return runTool({ labels: true }); },
+  async routine({ name, steps = [], triggers = [] } = {}) { return runTool({ routineCreate: { name, steps, triggers } }); },
 
   // ---------- Mémoire personnelle ----------
   remember({ fact }) {
@@ -926,6 +947,121 @@ async function handleRoute(opts) {
   await say(speech);
 }
 
+// ---------------- Traducteur, étiquettes AR, routines ----------------
+const voiceHooks = { pauseVoice: () => voice.pause(), resumeVoice: () => voice.resume() };
+async function runTool(c) {
+  if (c.translator) {
+    if (!tr.isOpen() && ar.isOpen()) ar.close();
+    tr.open(c.translator, voiceHooks);
+    const l = tr.findLang(c.translator) || tr.LANGS[1];
+    return `Traducteur français ${l[0]} prêt. Touchez le bouton de la personne qui parle, puis parlez.`;
+  }
+  if (c.translatorClose) { tr.close(); return 'Traducteur fermé.'; }
+  if (c.translateOnce) {
+    const out = await tr.once(c.translateOnce.text, c.translateOnce.to);
+    return out == null ? "Je ne connais pas cette langue." : '';
+  }
+  if (c.labels) return startLabels();
+  if (c.labelsOff) { stopLabels(); ar.clearLabels(); return ''; }
+  if (c.routineCreate) {
+    const r = routines.create(c.routineCreate.name, c.routineCreate.steps, c.routineCreate.triggers || []);
+    if (!r) return "Je n'ai pas compris cette routine. Dites par exemple : crée une routine je rentre : mets du jazz, puis donne la météo de demain.";
+    showRoutines();
+    initiative.suggest([{ label: `▶️ Tester « ${r.name} »`, say: r.name }]);
+    return `Routine « ${r.name} » enregistrée, avec ${r.steps.length} action${r.steps.length > 1 ? 's' : ''}. Dites simplement « ${r.name} » pour la lancer.`;
+  }
+  if (c.routinesShow) { showRoutines(); const n = routines.list().length; return n ? `Vous avez ${n} routine${n > 1 ? 's' : ''}.` : 'Vous n’avez pas encore de routine. En voici quelques exemples.'; }
+  if (c.routineDelete) { const r = routines.remove(c.routineDelete); return r ? `Routine « ${r.name} » supprimée.` : `Je ne trouve pas de routine « ${c.routineDelete} ».`; }
+  return '';
+}
+
+// Lance les actions d'une routine l'une après l'autre.
+let routineRunning = false;
+async function runRoutine(r) {
+  routineRunning = true;
+  try {
+    await say(`Routine « ${r.name} ».`);
+    for (const step of r.steps) {
+      await handle(step);
+      await new Promise((ok) => setTimeout(ok, 400));
+    }
+  } finally {
+    routineRunning = false;
+  }
+}
+
+let routinesCard = null;
+function routinesBody() {
+  const list = routines.list();
+  const name = el('input', { class: 'field', type: 'text', placeholder: 'Phrase qui la lance : « je rentre »', 'aria-label': 'Nom de la routine' });
+  const steps = el('textarea', { class: 'field', rows: '3', placeholder: 'Une action par ligne :\nmets du jazz\nquel temps va-t-il faire demain', 'aria-label': 'Actions de la routine' });
+  return el('div', { class: 'routines' },
+    list.length ? el('ul', { class: 'mem-list' }, list.map((r) => el('li', {},
+      el('span', { class: 'mem-text' }, el('b', {}, `« ${r.name} »`), el('br'), el('small', {}, r.steps.join(' → '))),
+      el('button', { type: 'button', class: 'icon-btn', title: 'Lancer', 'aria-label': `Lancer ${r.name}`, onclick: () => runRoutine(r) }, '▶️'),
+      el('button', { type: 'button', class: 'icon-btn mem-del', title: 'Supprimer', 'aria-label': `Supprimer ${r.name}`, onclick: () => routines.remove(r.name) }, '✕'))))
+      : el('p', { class: 'mem-empty' }, 'Aucune routine pour l’instant. Ajoutez un exemple ou créez la vôtre :'),
+    el('div', { class: 'actions-row' }, routines.EXAMPLES.filter((x) => !list.some((r) => r.name === x.name)).map((x) => chip(`＋ ${x.name}`, () => routines.create(x.name, x.steps)))),
+    el('form', { class: 'routine-new', onsubmit: (e) => { e.preventDefault(); if (routines.create(name.value, steps.value.split('\n'))) { name.value = ''; steps.value = ''; } } },
+      name, steps, el('button', { type: 'submit', class: 'primary' }, 'Créer la routine')),
+    el('p', { class: 'sources' }, 'Astuce : « crée une routine bonne nuit : mets de la musique relaxante, puis un minuteur de 30 minutes ».'));
+}
+function showRoutines() {
+  if (routinesCard?.isConnected) { routinesCard.querySelector('.routines')?.replaceWith(routinesBody()); ui.restoreCard(routinesCard); return; }
+  routinesCard = ui.card('Mes routines', routinesBody(), { icon: '⚡', kind: 'routines', keep: true });
+}
+routines.onChange(() => { const old = routinesCard?.isConnected && routinesCard.querySelector('.routines'); if (old) old.replaceWith(routinesBody()); });
+
+// Étiquettes AR : Jarvis nomme ce que filme la caméra, et actualise régulièrement.
+let labelTimer = 0;
+let labelScans = 0;
+function stopLabels() { clearInterval(labelTimer); labelTimer = 0; }
+async function startLabels() {
+  if (!canSee()) { showOnboarding(); return "Pour étiqueter ce que je vois, il me faut une IA capable de voir : une clé gratuite Groq ou Gemini."; }
+  if (tr.isOpen()) tr.close();
+  const err = await ensureAR();
+  if (err) return err;
+  ar.clearScene('Étiquettes');
+  ar.setPanel(null);
+  for (let i = 0; i < 25 && !ar.captureFrame(); i++) await new Promise((ok) => setTimeout(ok, 200)); // caméra qui démarre
+  if (!ar.captureFrame()) return "La caméra n'est pas disponible : autorisez-la pour que je puisse étiqueter ce qu'elle voit.";
+  labelScans = 0;
+  const n = await scanLabels();
+  stopLabels();
+  // Actualisation automatique pendant un moment (la caméra bouge), puis sur demande.
+  labelTimer = setInterval(() => {
+    if (!ar.isOpen() || !ar.hasLabels() || labelScans >= 12) { stopLabels(); return; }
+    if (!busy && !voice.speaking && !document.hidden) scanLabels();
+  }, 12000);
+  initiative.suggest([{ label: '🔄 Actualiser', say: 'actualise les étiquettes' }, { label: '🧹 Enlever', say: 'enlève les étiquettes' }]);
+  return n ? `J'ai identifié ${n} élément${n > 1 ? 's' : ''}. Touchez une étiquette pour en savoir plus.` : "Je ne reconnais rien de précis. Rapprochez-vous ou visez un objet, puis dites « actualise ».";
+}
+let scanning = false;
+async function scanLabels() {
+  if (scanning) return 0;
+  const frame = ar.captureFrame();
+  if (!frame) return 0;
+  scanning = true;
+  labelScans++;
+  ar.caption('🔎 J’analyse ce que je vois…');
+  try {
+    const objs = await labelObjects({ dataUrl: frame, source: 'camera', label: 'caméra' });
+    if (!ar.isOpen()) return 0;
+    ar.caption('');
+    return ar.showLabels(objs, { onTag: (o) => ar.setPanel(el('div', {},
+      el('h3', {}, o.label), o.info ? el('p', { class: 'route-places' }, o.info) : null,
+      el('div', { class: 'actions-row' },
+        chip('💬 Dis-m’en plus', () => handle(`dis-m'en plus sur ${o.label} en trois phrases`)),
+        chip('🥽 Voir en 3D', () => handle(`projette ${o.label} en 3D`)),
+        chip('✕ Fermer', () => ar.setPanel(null))))) });
+  } catch (e) {
+    ar.caption(`Analyse impossible : ${explainError(e)}`);
+    return 0;
+  } finally {
+    scanning = false;
+  }
+}
+
 // Prochaines étapes proposées après une action (boutons, jamais dites à voix haute).
 function nextSteps(actions = []) {
   const out = [];
@@ -1159,6 +1295,12 @@ function bindUI() {
   $('file').onchange = (e) => { receiveImage(e.target.files?.[0]); e.target.value = ''; };
   $('btn-draw').onclick = () => (draw.isOpen() ? draw.close() : handle('mode dessin'));
   $('show-memory').onclick = () => { $('settings').close(); showMemory(); };
+  $('show-routines').onclick = () => { $('settings').close(); showRoutines(); };
+  const base = `${location.origin}${location.pathname}`;
+  $('shortcut-url').value = `${base}?cmd=`;
+  $('copy-shortcut').onclick = async () => {
+    try { await navigator.clipboard.writeText($('shortcut-url').value); $('copy-shortcut').textContent = 'Copié ✓'; } catch { $('shortcut-url').select(); }
+  };
   $('btn-camera').onclick = () => (camera.isOpen() ? camera.closeCamera() : handle('affiche ma caméra'));
   addEventListener('dragover', (e) => { if ([...(e.dataTransfer?.items || [])].some((i) => i.kind === 'file')) { e.preventDefault(); document.body.classList.add('dropping'); } });
   addEventListener('dragleave', (e) => { if (!e.relatedTarget) document.body.classList.remove('dropping'); });
@@ -1322,6 +1464,19 @@ function init() {
   });
   // Dessin laissé en pause quelques secondes : proposer de le transformer.
   setInterval(() => { if (draw.isOpen() && Date.now() - draw.lastStrokeAt() > 6000) initiative.onDrawIdle(draw.strokeCount()); }, 2000);
+
+  // Raccourcis (Siri, écran d'accueil) : ?cmd=… exécute une demande, ?listen=1 écoute, ?mode=dessin|ar|traducteur|etiquettes.
+  const q = new URLSearchParams(location.search);
+  const cmd = q.get('cmd') || q.get('q');
+  const modeCmd = { dessin: 'mode dessin', draw: 'mode dessin', ar: 'ouvre la réalité augmentée', traducteur: 'mode interprète anglais', translate: 'mode interprète anglais', etiquettes: 'étiquette ce que tu vois', labels: 'étiquette ce que tu vois', routines: 'mes routines' }[q.get('mode') || ''];
+  if (cmd || modeCmd || q.has('listen')) {
+    history.replaceState(null, '', location.pathname); // la demande n'est pas rejouée au prochain chargement
+    setTimeout(() => {
+      if (cmd) handle(cmd);
+      else if (modeCmd) handle(modeCmd);
+      else if (voice.supported) { firstGesture(); if (!voice.listenOnce()) ui.setLive('Touchez le micro pour parler.', 'reply'); }
+    }, 900);
+  }
 
   if ('serviceWorker' in navigator && location.protocol === 'https:') {
     navigator.serviceWorker.register('sw.js').catch(() => {});
